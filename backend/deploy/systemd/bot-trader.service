@@ -1,0 +1,49 @@
+[Unit]
+Description=Bot Trader - Automated Trading Bot (Drift Protocol)
+Documentation=https://github.com/yourorg/bot-repo
+After=network.target
+# Fail fast if secrets file or config file are missing
+ConditionPathExists=/opt/bot/secrets/bot-secrets.env
+# Non-secret config (.env contains only placeholders — secrets are in bot-secrets.env)
+ConditionPathExists=/home/ubuntu/v2-bot-repo/bot-repo/backend/.env
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/v2-bot-repo/bot-repo
+
+# start.sh (root) delegates to backend/start.sh, which handles secrets validation,
+# node resolution, and process launch.
+# Module activation is controlled by .env (ENABLE_WEB, ENABLE_CONTROL_BOT, ENABLE_SIGNAL_LISTENER).
+ExecStart=/home/ubuntu/v2-bot-repo/bot-repo/start.sh
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Logging — all output goes to journald, identifiable as "bot-trader"
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bot-trader
+
+# Non-secret runtime variables
+Environment=NODE_ENV=production
+
+# To enable paper trading mode, uncomment:
+# Environment=PAPER_TRADING=true
+
+# To use a custom secrets file path (start.sh default: /opt/bot/secrets/bot-secrets.env):
+# Environment=BOT_SECRETS_FILE=/opt/bot/secrets/bot-secrets.env
+
+# To use a custom .env file for non-secret config:
+# Environment=BOT_ENV_FILE=/opt/bot/config/bot.env
+
+# Minimal security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

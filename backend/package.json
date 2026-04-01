@@ -1,0 +1,37 @@
+{
+  "name": "solana-perps-bot",
+  "version": "2.0.0",
+  "description": "Telegram signals → Drift Protocol PERPS on Solana",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "paper": "PAPER_TRADING=true node src/index.js",
+    "monitor": "node src/monitor/index.js",
+    "monitor:paper": "PAPER_TRADING=true node src/monitor/index.js",
+    "full": "node src/index.js --web --control-bot",
+    "full:paper": "PAPER_TRADING=true node src/index.js --web --control-bot",
+    "web": "node src/index.js --web",
+    "web:paper": "PAPER_TRADING=true node src/index.js --web"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.29.0",
+    "@drift-labs/sdk": "^2.101.0",
+    "@solana/spl-token": "^0.4.6",
+    "@solana/web3.js": "^1.95.3",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.1",
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "readline-sync": "^1.4.10",
+    "socket.io": "^4.8.3",
+    "telegram": "^2.19.7",
+    "winston": "^3.13.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
