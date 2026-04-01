@@ -1,0 +1,20 @@
+# env
+.env
+
+# logs
+logs/
+*.log
+
+# dependencias
+node_modules/
+
+# build
+dist/
+build/
+
+# Secret files — must never be committed
+telegram_session.txt
+*.session
+*wallet*.json
+id.json
+miner.json

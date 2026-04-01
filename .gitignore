@@ -1,0 +1,64 @@
+# =========================
+# ENV
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# NODE
+# =========================
+node_modules/
+dist/
+build/
+coverage/
+
+# =========================
+# LOGS
+# =========================
+logs/
+*.log
+
+# =========================
+# SECRETS / KEYS
+# =========================
+*.pem
+*.key
+*.secret
+*.session
+telegram_session.txt
+*wallet*.json
+id.json
+miner.json
+secret.json
+secrets/
+*.sqlite
+*.db
+
+# =========================
+# SOLANA / CRYPTO
+# =========================
+wallet.json
+keypair.json
+*.seed
+*.mnemonic
+
+# =========================
+# OS / EDITOR
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+
+# =========================
+# FRONTEND / FRAMEWORK
+# =========================
+.next/
+.nuxt/
+.cache/
+
+# =========================
+# PYTHON / MISC
+# =========================
+__pycache__/
+*.pyc

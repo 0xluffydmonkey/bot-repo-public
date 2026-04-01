@@ -1,0 +1,32 @@
+# Security Rules
+
+## Critical rules
+- Private key must never be stored in `.env`
+- Telegram session files must never be committed
+- Wallet files must stay outside the repository
+- Production secrets must exist only in isolated environment
+
+## Secret handling
+Allowed in `.env`:
+- RPC URLs
+- feature flags
+- numeric limits
+- file paths
+
+Not allowed in `.env`:
+- PRIVATE_KEY
+- SECRET_KEY
+- MNEMONIC
+- TELEGRAM_SESSION raw value
+
+## Safe pattern
+Use:
+- `BOT_WALLET_PATH=/opt/bot/secrets/drift-wallet.json`
+- `TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt`
+
+## Incident response
+If suspicious behavior is detected:
+1. stop the bot
+2. remove remaining funds if possible
+3. abandon compromised wallet/session
+4. investigate before resuming
