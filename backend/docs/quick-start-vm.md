@@ -92,6 +92,19 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 TELEGRAM_CONTROL_ALLOWED_IDS=123456789
 ```
 
+**Multi-venue wallets** (optional — only needed if using Jupiter or Phoenix):
+
+```env
+# Drift: if not set, falls back to BOT_WALLET_PATH automatically
+WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
+
+# Required when PERP_OPEN_VENUE=jupiter
+WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
+
+# Required when PERP_OPEN_VENUE=phoenix
+WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+```
+
 Also place the wallet and Telegram session:
 
 ```bash

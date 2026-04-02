@@ -21,6 +21,7 @@
 //   - PHOENIX_API_BASE_URL is non-sensitive and can be in .env
 
 import logger from '../../utils/logger.js';
+import { resolveWalletForVenue } from '../../wallets/walletResolver.js';
 
 function getBaseUrl() {
   return (process.env.PHOENIX_API_BASE_URL ?? 'https://api.phoenix.trade').replace(/\/$/, '');
@@ -60,6 +61,9 @@ export const phoenixPerpAdapter = {
    * @returns {Promise<object>}
    */
   async openTrade(tradeParams) {
+    // Validate wallet is configured — fails fast with a clear error if WALLET_PHOENIX_PATH is missing
+    resolveWalletForVenue('phoenix');
+
     const { asset, direction, entry, leverage, positionSizeUSD, signalId } = tradeParams;
 
     logger.info(`[PHOENIX] Abrindo posição: ${direction} ${asset} @ $${entry}`, {
@@ -71,7 +75,7 @@ export const phoenixPerpAdapter = {
     // ── TODO: Implement when Phoenix Perps API is publicly available ──────────
     // const baseUrl = getBaseUrl();
     // const headers = buildHeaders();
-    // const keypair = loadWalletKeypair();
+    // const keypair = resolveWalletForVenue('phoenix');
     //
     // // 1. Construct order params (exact fields TBD — see docs.phoenix.trade)
     // const orderBody = {

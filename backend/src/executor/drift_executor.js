@@ -20,7 +20,7 @@ import { AnchorProvider }  from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import logger              from '../utils/logger.js';
 import { config }          from '../config/index.js';
-import { loadWalletKeypair } from '../services/walletLoader.js';
+import { resolveWalletForVenue } from '../wallets/walletResolver.js';
 
 // ─── Mapa símbolo → marketIndex (validado contra MainnetPerpMarkets do SDK) ──
 // Conferido em 2026-03 via: MainnetPerpMarkets.forEach(m => console.log(m.marketIndex, m.baseAssetSymbol))
@@ -121,8 +121,9 @@ let _keypair     = null;
 
 function getKeypair() {
   if (!_keypair) {
-    _keypair = loadWalletKeypair();
-    logger.info(`[DRIFT] Wallet pública: ${_keypair.publicKey.toBase58()}`);
+    // resolveWalletForVenue('drift') checks WALLET_DRIFT_PATH first,
+    // then falls back to BOT_WALLET_PATH — backward compatible.
+    _keypair = resolveWalletForVenue('drift');
   }
   return _keypair;
 }

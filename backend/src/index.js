@@ -5,12 +5,11 @@ import { parseSignal, validateSignal } from "./parser/signal_parser.js";
 import { calculateTradeParams } from "./risk/risk_manager.js";
 import {
   getWalletBalance,
-  closePosition,
-  closeAllPositions,
   initDriftClient,
   disconnectDrift,
 } from "./executor/drift_executor.js";
-import { perpService }     from "./trading/PerpExecutionService.js";
+import { perpService }          from "./trading/PerpExecutionService.js";
+import { calculateTradeCost }   from "./trading/costs/tradeCostCalculator.js";
 import { positionManager } from "./trading/position-management/PositionManager.js";
 import { startTelegramListener } from "./telegram/telegram_listener.js";
 import { fetchAccountData }      from "./monitor/data_fetcher.js";
@@ -162,6 +161,29 @@ async function handleSignalMessage(text, meta = {}) {
   // Executar na venue configurada (PERP_OPEN_VENUE)
   const activeVenue = perpService.getActiveVenue();
   logger.info(`[BOT] 🚀 Enviando para ${activeVenue.toUpperCase()}...`);
+
+  // Estimativa de custo pré-execução (ENABLE_COST_ESTIMATION=true)
+  if (process.env.ENABLE_COST_ESTIMATION === 'true') {
+    const cost = await calculateTradeCost({
+      venue:       activeVenue,
+      asset:       tradeParams.asset,
+      notionalUSD: tradeParams.notionalValueUSD,
+      direction:   tradeParams.direction,
+    });
+    if (cost) {
+      logger.info(`[BOT] 💰 Estimativa de custo (${activeVenue.toUpperCase()}):`, {
+        event:    'cost_estimated',
+        venue:    cost.venue,
+        openFee:  `$${cost.openFeeUsd}`,
+        closeFee: `$${cost.closeFeeUsd}`,
+        carry:    `$${cost.carryCostUsd}`,
+        total:    `$${cost.totalCostUsd}`,
+      });
+    } else {
+      logger.warn(`[BOT] Estimativa de custo indisponível (${activeVenue.toUpperCase()})`);
+    }
+  }
+
   try {
     const result = await perpService.openTrade(tradeParams);
 
@@ -220,25 +242,26 @@ async function startAccountPoller() {
 
 // ─── Handlers de comandos remotos (via web ou control bot) ────────────────────
 function registerCommandHandlers() {
-  // Fechar posição específica
+  // Fechar posição específica — roteado via PerpExecutionService (respeita PERP_OPEN_VENUE)
   state.on('cmd:close', async ({ asset }) => {
-    logger.info(`[BOT] 🔒 Comando: fechar ${asset}`);
+    logger.info(`[BOT] 🔒 Comando: fechar ${asset} (venue: ${perpService.getActiveVenue()})`);
     try {
-      const txSig = await closePosition(asset);
-      logger.info(`[BOT] ✅ Posição ${asset} fechada via comando: ${txSig}`);
+      await perpService.closeTrade(asset);
+      logger.info(`[BOT] ✅ Posição ${asset} fechada via comando`);
     } catch (err) {
       logger.error(`[BOT] ❌ Falha ao fechar ${asset}: ${err.message}`);
       state.addError(`cmd:close ${asset}`, err);
     }
   });
 
-  // Fechar todas as posições
+  // Fechar todas as posições — roteado via PerpExecutionService (respeita PERP_OPEN_VENUE)
   state.on('cmd:close_all', async () => {
-    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições`);
+    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições (venue: ${perpService.getActiveVenue()})`);
     try {
-      const results = await closeAllPositions();
-      const ok = results.filter(r => r.success).length;
-      logger.info(`[BOT] ✅ Close all: ${ok}/${results.length} fechadas`);
+      const results = await perpService.closeAllTrades();
+      const ok = Array.isArray(results) ? results.filter(r => r.success).length : '?';
+      const total = Array.isArray(results) ? results.length : '?';
+      logger.info(`[BOT] ✅ Close all: ${ok}/${total} fechadas`);
     } catch (err) {
       logger.error(`[BOT] ❌ Falha no close_all: ${err.message}`);
       state.addError('cmd:close_all', err);

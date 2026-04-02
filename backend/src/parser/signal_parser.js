@@ -147,7 +147,7 @@ export function validateSignal(signal) {
   if (!signal.signalId) errors.push('ID do sinal ausente');
   if (!signal.asset)    errors.push('Ativo ausente');
   if (!signal.direction) errors.push('Direção ausente (LONG/SHORT)');
-  if (signal.entry   === null) errors.push('Entrada ausente');
+  if (!signal.entry || signal.entry <= 0) errors.push('Entrada ausente ou inválida (deve ser > 0)');
   if (signal.tp      === null) errors.push('Take Profit ausente');
   if (signal.sl      === null) errors.push('Stop Loss ausente');
   if (signal.leverage === null) errors.push('Alavancagem ausente');

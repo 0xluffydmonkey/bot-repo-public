@@ -16,7 +16,7 @@
 import fetch from 'node-fetch';
 import logger from '../../utils/logger.js';
 import { JUPITER_PERPS } from '../../config/index.js';
-import { loadWalletKeypair } from '../../services/walletLoader.js';
+import { resolveWalletForVenue } from '../../wallets/walletResolver.js';
 
 // Non-sensitive base URL — can be set in .env
 // Sensitive: any API key MUST come from secrets file
@@ -58,6 +58,9 @@ export const jupiterPerpAdapter = {
    * @returns {Promise<object>}
    */
   async openTrade(tradeParams) {
+    // Validate wallet is configured — fails fast with a clear error if WALLET_JUPITER_PATH is missing
+    resolveWalletForVenue('jupiter');
+
     const { asset, direction, entry, tp, sl, leverage, positionSizeUSD, notionalValueUSD, signalId } = tradeParams;
 
     logger.info(`[JUPITER] Abrindo posição: ${direction} ${asset} @ $${entry}`, {
@@ -81,7 +84,7 @@ export const jupiterPerpAdapter = {
     // Reference: https://dev.jup.ag/docs/perps
     //
     // Expected flow:
-    //   const keypair = loadWalletKeypair();
+    //   const keypair = resolveWalletForVenue('jupiter');
     //   const baseUrl = getBaseUrl();
     //
     //   // 1. Request open-position instruction
