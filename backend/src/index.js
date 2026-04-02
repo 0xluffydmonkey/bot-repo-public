@@ -5,12 +5,13 @@ import { parseSignal, validateSignal } from "./parser/signal_parser.js";
 import { calculateTradeParams } from "./risk/risk_manager.js";
 import {
   getWalletBalance,
-  openPositionWithRetry,
   closePosition,
   closeAllPositions,
   initDriftClient,
   disconnectDrift,
 } from "./executor/drift_executor.js";
+import { perpService }     from "./trading/PerpExecutionService.js";
+import { positionManager } from "./trading/position-management/PositionManager.js";
 import { startTelegramListener } from "./telegram/telegram_listener.js";
 import { fetchAccountData }      from "./monitor/data_fetcher.js";
 import { signalStore } from "./utils/signal_store.js";
@@ -158,10 +159,11 @@ async function handleSignalMessage(text, meta = {}) {
     return;
   }
 
-  // Executar no Drift com retry
-  logger.info(`[BOT] 🚀 Enviando para Drift Protocol...`);
+  // Executar na venue configurada (PERP_OPEN_VENUE)
+  const activeVenue = perpService.getActiveVenue();
+  logger.info(`[BOT] 🚀 Enviando para ${activeVenue.toUpperCase()}...`);
   try {
-    const result = await openPositionWithRetry(tradeParams);
+    const result = await perpService.openTrade(tradeParams);
 
     signalStore.add(signal.signalId, {
       status: "executed",
@@ -269,6 +271,9 @@ async function main() {
 
   // Inicializar estado
   state.setMode(config.trading.paperMode ? 'paper' : 'live');
+
+  // Iniciar rastreamento de posições (alertas + trailing stop)
+  positionManager.start();
 
   // Pré-aquecer o DriftClient
   if (!config.trading.paperMode) {
