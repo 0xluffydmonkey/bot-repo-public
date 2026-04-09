@@ -92,6 +92,45 @@ LOG_DIR=./logs
 
 ---
 
+## Multi-venue wallets (optional)
+
+The bot supports a dedicated wallet for each DEX. Configure these in the secrets file — never in `.env`.
+
+Add to `/opt/bot/secrets/bot-secrets.env`:
+
+```env
+WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
+WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
+WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+```
+
+**How it works:**
+
+| Venue | Wallet used |
+|-------|-------------|
+| Drift | `WALLET_DRIFT_PATH` → falls back to `BOT_WALLET_PATH` if not set |
+| Jupiter | `WALLET_JUPITER_PATH` (required when `PERP_OPEN_VENUE=jupiter`) |
+| Phoenix | `WALLET_PHOENIX_PATH` (required when `PERP_OPEN_VENUE=phoenix`) |
+
+**Drift backward compatibility:** existing deployments that only set `BOT_WALLET_PATH` keep working without any changes.
+
+**Missing wallet = safe failure:** if `PERP_OPEN_VENUE` is set to `jupiter` or `phoenix` and the matching `WALLET_*_PATH` is not in the secrets file, the bot will refuse to execute trades with a clear error message identifying which variable is missing.
+
+Each wallet file must have `chmod 600` and be owned by the bot user.
+
+---
+
 ## Full reference
 
 See [backend/.env.example](../../backend/.env.example) for every available variable with comments.
+
+---
+
+## Operational safety note
+
+Close flows are venue-aware and do not all behave the same way.
+
+- direct manual helper closes may still use active-venue fallback for backward compatibility
+- remote, command-bus, and automated close flows are stricter and may refuse the close if venue cannot be resolved safely
+
+See [Close Policy](close-policy.md) for the canonical detailed rules.

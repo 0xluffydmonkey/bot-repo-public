@@ -1,0 +1,250 @@
+// src/trading/ManualTradeService.js
+// Ponto de entrada único para execução manual de trades.
+//
+// Exporta também executeSignal() — núcleo de execução compartilhado com o
+// fluxo automático de sinais do Telegram. Ambos os fluxos passam pelo mesmo
+// pipeline: walletBalance → calculateTradeParams → perpService.openTrade
+//
+// Compatível com PAPER_TRADING, respeita o risk manager em todas as operações.
+// Não duplica lógica — não cria executor paralelo — não bypassa validações.
+
+import logger from '../utils/logger.js';
+import { validateSignal } from '../parser/signal_parser.js';
+import { calculateTradeParams } from '../risk/risk_manager.js';
+import { perpService } from './PerpExecutionService.js';
+import { calculateTradeCost } from './costs/tradeCostCalculator.js';
+import { config } from '../config/index.js';
+import state from '../core/state.js';
+import { resolveCloseVenue } from './closeVenueResolver.js';
+
+// ─── Núcleo de execução compartilhado ─────────────────────────────────────────
+/**
+ * Executa um trade a partir de um objeto signal já validado e completo.
+ *
+ * É o núcleo compartilhado entre o fluxo automático (Telegram) e o manual.
+ * Não faz deduplicação, não checa pausa/autoTrading, não acessa signalStore —
+ * essas responsabilidades pertencem ao orquestrador de cada fluxo.
+ *
+ * Estratégia de retorno:
+ *   - Rejeições de negócio (saldo, risk manager) → retorna { success: false, phase, reason }
+ *   - Falha de execução (rede, SDK) → lança exceção (caller decide como registrar)
+ *
+ * @param {object} signal   - Objeto signal completo e já validado
+ * @param {object} [opts]
+ * @param {boolean} [opts.withCostEstimation=false] - Logar estimativa de custo pré-execução
+ *
+ * @returns {Promise<
+ *   | { success: true,  result: object, tradeParams: object }
+ *   | { success: false, phase: 'balance'|'risk', reason: string }
+ * >}
+ * @throws Quando perpService.openTrade falha (execução na blockchain/simulação)
+ */
+export async function executeSignal(signal, opts = {}) {
+  const { withCostEstimation = false } = opts;
+
+  // ── 1. Verificar saldo — via PerpExecutionService (venue-agnostic) ──────────
+  const walletBalance = await perpService.getBalance();
+  if (walletBalance <= 0 && !config.trading.paperMode) {
+    return {
+      success: false,
+      phase:   'balance',
+      reason:  `Saldo insuficiente: $${walletBalance}`,
+    };
+  }
+
+  // ── 2. Risk manager ─────────────────────────────────────────────────────────
+  const tradeParams = await calculateTradeParams(signal, walletBalance);
+  if (!tradeParams) {
+    return {
+      success: false,
+      phase:   'risk',
+      reason:  'Rejeitado pelo risk manager',
+    };
+  }
+
+  // ── 3. Estimativa de custo (informativo, nunca bloqueia execução) ───────────
+  if (withCostEstimation && process.env.ENABLE_COST_ESTIMATION === 'true') {
+    const venue = perpService.getActiveVenue();
+    try {
+      const cost = await calculateTradeCost({
+        venue,
+        asset:       tradeParams.asset,
+        notionalUSD: tradeParams.notionalValueUSD,
+        direction:   tradeParams.direction,
+      });
+      if (cost) {
+        logger.info(`[EXEC] 💰 Estimativa de custo (${venue.toUpperCase()}):`, {
+          openFee:  `$${cost.openFeeUsd}`,
+          closeFee: `$${cost.closeFeeUsd}`,
+          carry:    `$${cost.carryCostUsd}`,
+          total:    `$${cost.totalCostUsd}`,
+        });
+      }
+    } catch (costErr) {
+      // Nunca deixar falha de estimativa impedir execução
+      logger.warn(`[EXEC] Estimativa de custo falhou (não bloqueia): ${costErr.message}`);
+    }
+  }
+
+  // ── 4. Execução — pode lançar exceção ──────────────────────────────────────
+  const activeVenue = perpService.getActiveVenue();
+  logger.info(`[EXEC] 🚀 Enviando para ${activeVenue.toUpperCase()}...`);
+
+  const result = await perpService.openTrade(tradeParams);  // lança se falhar
+  state.signalExecuted(signal, result);
+
+  return { success: true, result, tradeParams };
+}
+
+// ─── Abertura manual ───────────────────────────────────────────────────────────
+/**
+ * Abre uma posição manualmente.
+ *
+ * Constrói o objeto signal a partir de params brutos, valida, e delega ao
+ * núcleo compartilhado executeSignal(). Não checa pausa nem auto-trading —
+ * trade manual é intenção explícita do operador.
+ *
+ * @param {object} params
+ * @param {string}            params.asset
+ * @param {'LONG'|'SHORT'}    params.direction
+ * @param {number}            params.entry
+ * @param {number}            params.tp
+ * @param {number}            params.sl
+ * @param {number}            params.leverage
+ * @param {'isolated'|'cross'} [params.marginType='isolated']
+ *
+ * @returns {Promise<{ success: boolean, signalId?: string, result?: object, reason?: string }>}
+ */
+export async function openManualTrade(params) {
+  const {
+    asset, direction, entry, tp, sl,
+    leverage, marginType = 'isolated',
+  } = params;
+
+  const signalId = `MANUAL_${Date.now()}_${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+
+  logger.info(`[MANUAL] ── Abertura manual ${direction} ${asset} ──`, {
+    signalId, entry, tp, sl, leverage, marginType,
+  });
+
+  const signal = {
+    signalId,
+    asset:      asset?.toUpperCase(),
+    direction:  direction?.toUpperCase(),
+    entry:      Number(entry),
+    tp:         Number(tp),
+    sl:         Number(sl),
+    leverage:   Number(leverage),
+    marginType: marginType ?? 'isolated',
+    source:     'manual',
+  };
+
+  // Validação lógica — mesma função do fluxo automático
+  const { valid, errors } = validateSignal(signal);
+  if (!valid) {
+    const reason = `Parâmetros inválidos: ${errors.join(', ')}`;
+    logger.warn(`[MANUAL] ⛔ ${reason}`);
+    return { success: false, reason };
+  }
+
+  try {
+    const execResult = await executeSignal(signal);
+
+    if (!execResult.success) {
+      logger.warn(`[MANUAL] ⛔ ${execResult.reason} — ${signalId}`);
+      state.addError(`manual:open ${asset}`, new Error(execResult.reason));
+      return { success: false, reason: execResult.reason };
+    }
+
+    logger.info(`[MANUAL] ✅ Posição manual aberta`, { signalId, asset, direction });
+    return { success: true, signalId, result: execResult.result };
+  } catch (err) {
+    logger.error(`[MANUAL] ❌ Falha na abertura manual: ${err.message}`);
+    state.addError(`manual:open ${asset}`, err);
+    return { success: false, reason: err.message };
+  }
+}
+
+// ─── Fechamento manual ─────────────────────────────────────────────────────────
+/**
+ * Fecha manualmente uma posição específica.
+ * Delega para perpService.closeTrade — mesma lógica do cmd:close automático.
+ *
+ * @param {string} asset
+ * @param {string|null} venue
+ * @returns {Promise<{ success: boolean, txSig?: string, reason?: string }>}
+ */
+export async function closeManualTrade(asset, venue = null) {
+  const { venue: resolvedVenue, source } = resolveCloseVenue(asset, venue);
+  if (source === 'active_fallback') {
+    logger.warn(`[MANUAL] Venue não informada para close de ${asset} — usando venue ativa "${resolvedVenue}" como fallback`);
+  }
+  logger.info(`[MANUAL] Fechando posição: ${asset}`, { venue: resolvedVenue });
+  try {
+    const txSig = await perpService.closeTrade(asset, resolvedVenue);
+    logger.info(`[MANUAL] ✅ Posição ${asset} fechada`);
+    return { success: true, txSig };
+  } catch (err) {
+    logger.error(`[MANUAL] ❌ Falha ao fechar ${asset}: ${err.message}`);
+    state.addError(`manual:close ${asset}`, err);
+    return { success: false, reason: err.message };
+  }
+}
+
+// ─── Fechar todas ──────────────────────────────────────────────────────────────
+/**
+ * Fecha todas as posições abertas manualmente.
+ * Delega para perpService.closeAllTrades — mesma lógica do cmd:close_all.
+ *
+ * @param {string|null} venue
+ * @returns {Promise<{ success: boolean, results: Array, reason?: string }>}
+ */
+export async function closeAllManualTrades(venue = null) {
+  const { venue: resolvedVenue, source } = resolveCloseVenue(null, venue);
+  if (source === 'active_fallback') {
+    logger.warn(`[MANUAL] Venue não informada para close_all — usando venue ativa "${resolvedVenue}" como fallback`);
+  }
+  logger.info(`[MANUAL] Fechando todas as posições`, { venue: resolvedVenue });
+  try {
+    const results = await perpService.closeAllTrades(resolvedVenue);
+    const ok    = Array.isArray(results) ? results.filter(r => r.success).length : '?';
+    const total = Array.isArray(results) ? results.length : '?';
+    logger.info(`[MANUAL] ✅ Close all: ${ok}/${total} fechadas`);
+    return { success: true, results };
+  } catch (err) {
+    logger.error(`[MANUAL] ❌ Falha no close all: ${err.message}`);
+    state.addError('manual:close_all', err);
+    return { success: false, reason: err.message, results: [] };
+  }
+}
+
+// ─── Atualizar TP/SL ──────────────────────────────────────────────────────────
+/**
+ * Atualiza TP e/ou SL de uma posição aberta.
+ * O lado omitido (null) é preservado — ver drift_executor.updateTpSl.
+ *
+ * @param {string}      asset
+ * @param {number|null} tp
+ * @param {number|null} sl
+ * @returns {Promise<{ success: boolean, signatures?: object, reason?: string }>}
+ */
+export async function updateManualTpSl(asset, tp, sl) {
+  if (tp == null && sl == null) {
+    return { success: false, reason: 'Informe ao menos um valor: tp ou sl' };
+  }
+
+  logger.info(`[MANUAL] Atualizando TP/SL: ${asset}`, {
+    tp: tp ?? '(sem alteração)',
+    sl: sl ?? '(sem alteração)',
+  });
+
+  try {
+    const result = await perpService.updateTpSl(asset, tp, sl);
+    logger.info(`[MANUAL] ✅ TP/SL atualizado: ${asset}`);
+    return { success: true, ...result };
+  } catch (err) {
+    logger.error(`[MANUAL] ❌ Falha ao atualizar TP/SL de ${asset}: ${err.message}`);
+    state.addError(`manual:tpsl ${asset}`, err);
+    return { success: false, reason: err.message };
+  }
+}

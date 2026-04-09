@@ -2,21 +2,14 @@
 // Sistema de decisão inteligente: valida, ajusta e decide sobre cada sinal
 // antes de enviar para o executor.
 
-import logger                              from '../utils/logger.js';
-import { config }                          from '../config/index.js';
-import { DRIFT_MARKET_INDEX, getMarketLimits, snapToStep, getLiveAccountSnapshot } from '../executor/drift_executor.js';
+import logger      from '../utils/logger.js';
+import { config } from '../config/index.js';
+import { perpService } from '../trading/PerpExecutionService.js';
 import state from '../core/state.js';
 
-// Colateral mínimo absoluto que o Drift aceita (USD)
+// Colateral mínimo absoluto (USD) — venue-agnostic floor abaixo do qual qualquer
+// ordem é inviável independente de plataforma.
 const MIN_COLLATERAL_USD = 0.10;
-
-// Max leverage por ativo no Drift Protocol mainnet (validado 2026-03)
-const DRIFT_MAX_LEVERAGE_BY_ASSET = {
-  SOL:    20, BTC:    20, ETH:    20, APT:    10,
-  '1MBONK': 10, BONK: 10, POL:    10, MATIC:  10,
-  ARB:    10, DOGE:   10, BNB:    10, SUI:    10,
-  WIF:    10, JUP:    10,
-};
 
 /**
  * Calcula e valida todos os parâmetros para um trade.
@@ -36,16 +29,17 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
   const adjustments = [];
 
   // ─── 0. Mercado suportado? ────────────────────────────────────────────────
-  const marketIndex = DRIFT_MARKET_INDEX[signal.asset?.toUpperCase()];
-  if (marketIndex === undefined) {
-    logger.warn(`[RISK] ⛔ Ativo não suportado no Drift: "${signal.asset}". ` +
-      `Suportados: ${Object.keys(DRIFT_MARKET_INDEX).join(', ')}`);
+  const assetUpper     = signal.asset?.toUpperCase();
+  const supportedAssets = perpService.getSupportedAssets();
+  if (!supportedAssets.includes(assetUpper)) {
+    logger.warn(`[RISK] ⛔ Ativo não suportado na venue "${perpService.getActiveVenue()}": "${signal.asset}". ` +
+      `Suportados: ${supportedAssets.join(', ')}`);
     return null;
   }
-  logger.info(`[RISK] Ativo: ${signal.asset} → marketIndex ${marketIndex} ✓`);
+  logger.info(`[RISK] Ativo: ${signal.asset} ✓ (venue: ${perpService.getActiveVenue()})`);
 
   // ─── 1. Alavancagem ───────────────────────────────────────────────────────
-  const platformMaxLev = DRIFT_MAX_LEVERAGE_BY_ASSET[signal.asset?.toUpperCase()] ?? 10;
+  const platformMaxLev = perpService.getPlatformMaxLeverage(assetUpper);
   const configMaxLev   = config.trading.maxLeverage;
   const requestedLev   = signal.leverage;
   const finalLeverage  = Math.min(requestedLev, platformMaxLev, configMaxLev);
@@ -80,19 +74,20 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
     totalNotional    = 0;
     logger.info(`[RISK] Conta (paper): equity=$${totalEquity.toFixed(2)}`);
   } else {
-    // Live mode: busca diretamente do DriftUser — nunca usa cache zerado do state
-    const drift = await getLiveAccountSnapshot();
-    const snap  = state.getSnapshot();
+    // Live mode: busca snapshot ao vivo via PerpExecutionService (venue-agnostic).
+    // Nunca usa cache do state — fonte de verdade é sempre o adapter da venue ativa.
+    const snap    = state.getSnapshot();
+    const account = await perpService.getAccountSnapshot();
 
     // Log comparativo para diagnóstico
-    logger.debug(`[RISK] Drift freeCollateral: $${drift.freeCollateral.toFixed(2)}`);
+    logger.debug(`[RISK] Venue freeCollateral: $${account.freeCollateral.toFixed(2)}`);
     logger.debug(`[RISK] State freeCollateral: $${(snap.account?.freeCollateral ?? 0).toFixed(2)}`);
-    logger.debug(`[RISK] Using Drift value for risk calculation`);
+    logger.debug(`[RISK] Using venue snapshot for risk calculation`);
 
-    freeCollateral   = drift.freeCollateral;
-    totalEquity      = drift.totalEquity;
-    currentPositions = drift.positionCount;
-    totalNotional    = drift.totalNotional;
+    freeCollateral   = account.freeCollateral;
+    totalEquity      = account.totalEquity;
+    currentPositions = account.positionCount;
+    totalNotional    = account.totalNotional;
 
     logger.info(`[RISK] Conta (Drift): freeCollateral=$${freeCollateral.toFixed(2)} | equity=$${totalEquity.toFixed(2)} | posições=${currentPositions} | notional=$${totalNotional.toFixed(2)}`);
   }
@@ -155,10 +150,10 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
   }
 
   // ─── 8. Step size e tamanho mínimo do mercado ─────────────────────────────
-  const limits      = getMarketLimits(marketIndex);
+  const limits      = perpService.getMarketLimits(assetUpper);
   const notionalRaw = positionSizeUSD * finalLeverage;
   const baseRaw     = notionalRaw / signal.entry;
-  const baseSnapped = snapToStep(baseRaw, limits.stepBase);
+  const baseSnapped = perpService.snapToStep(baseRaw, limits.stepBase);
   const notionalSnapped = baseSnapped * signal.entry;
   const collateralSnapped = notionalSnapped / finalLeverage;
 
@@ -171,7 +166,7 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
       `[RISK] ⛔ Ordem inviável após ajuste de step size:\n` +
       `  Base:      ${baseSnapped.toFixed(6)} < mínimo ${limits.minBase}\n` +
       `  Colateral: $${collateralSnapped.toFixed(4)} (precisaria $${minCollateral.toFixed(4)})\n` +
-      `  Para resolver: deposite mais USDC no Drift ou aumente POSITION_SIZE_PCT`
+      `  Para resolver: deposite mais colateral na venue ou aumente POSITION_SIZE_PCT`
     );
     return null;
   }
@@ -196,7 +191,7 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
   }
 
   logger.info(`[RISK] ✅ Parâmetros aprovados:`, {
-    marketIndex,
+    venue:          perpService.getActiveVenue(),
     alavancagem:    `${finalLeverage}x`,
     colateral:      `$${positionSizeUSD.toFixed(4)}`,
     nocional:       `$${notionalValueUSD.toFixed(4)}`,

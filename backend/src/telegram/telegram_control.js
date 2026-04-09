@@ -92,9 +92,16 @@ export function startControlBot(token, allowedIds = []) {
 
     sessions.clearWaiting(userId);
 
-    // Emite o evento para que o executor/index.js aplique a modificação
-    state.emit('cmd:set_tpsl', { asset, type, price });
-    logger.info(`[CTRL] cmd:set_tpsl emitido: ${asset} ${type.toUpperCase()} → ${price}`);
+    // Contrato canônico do command-bus:
+    //   cmd:update_tpsl { asset, tp, sl }
+    // Mantém compatibilidade com o backend atual sem criar payloads paralelos.
+    const payload = {
+      asset,
+      tp: type === 'tp' ? price : null,
+      sl: type === 'sl' ? price : null,
+    };
+    state.emit('cmd:update_tpsl', payload);
+    logger.info(`[CTRL] cmd:update_tpsl emitido: ${asset} ${type.toUpperCase()} → ${price}`);
 
     // Feedback imediato ao usuário
     const label   = type === 'tp' ? 'Take Profit' : 'Stop Loss';

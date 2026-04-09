@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { api } from '@/api/client';
 import { normalizeSnapshot } from '@/lib/state-adapters';
 import { useDashboardStore } from '@/store/dashboard-store';
-import type { ActivityLog } from '@/types/state';
+import type { ActivityLog, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
 let socket: Socket | null = null;
 
@@ -118,10 +118,30 @@ export function useDashboard() {
     mutationFn: (enabled: boolean) =>
       runCommand('autotrading', () => api.setAutotrading(enabled), `Auto-trading ${enabled ? 'ativado' : 'desativado'} com sucesso.`),
   });
-  const closeAssetMutation = useMutation({
-    mutationFn: (asset: string) => runCommand(`close:${asset}`, () => api.closeAsset(asset), `Ordem de fechamento enviada para ${asset}.`),
+  const openTradeMutation = useMutation({
+    mutationFn: (payload: ManualOpenTradeInput) =>
+      runCommand(
+        'open_manual',
+        () => api.openTrade(payload),
+        `Ordem manual ${payload.direction} ${payload.asset} enviada com sucesso.`
+      ),
   });
-  const closeAllMutation = useMutation({ mutationFn: () => runCommand('close_all', api.closeAll, 'Fechamento global solicitado.') });
+  const closeAssetMutation = useMutation({
+    mutationFn: ({ asset, venue }: { asset: string; venue?: string }) =>
+      runCommand(`close:${asset}`, () => api.closeAsset(asset, venue), `Ordem de fechamento enviada para ${asset}.`),
+  });
+  const closeAllMutation = useMutation({
+    mutationFn: (venue?: string) =>
+      runCommand('close_all', () => api.closeAll(venue), 'Fechamento global solicitado.'),
+  });
+  const updateTpSlMutation = useMutation({
+    mutationFn: ({ asset, tp, sl }: UpdateTpSlInput) =>
+      runCommand(
+        `tpsl:${asset}`,
+        () => api.updateTpSl({ asset, tp, sl }),
+        `TP/SL atualizado para ${asset}.`
+      ),
+  });
 
   const positions = useMemo(() => snapshot?.positions ?? [], [snapshot?.positions]);
   const alerts = useMemo(() => snapshot?.alerts ?? [], [snapshot?.alerts]);
@@ -140,11 +160,13 @@ export function useDashboard() {
     metrics,
     isLoading: stateQuery.isLoading && !snapshot,
     isRefreshing: stateQuery.isRefetching,
+    openTrade: (payload: ManualOpenTradeInput) => openTradeMutation.mutateAsync(payload),
     pause: pauseMutation.mutateAsync,
     resume: resumeMutation.mutateAsync,
     setAutotrading: autotradingMutation.mutateAsync,
-    closeAsset: closeAssetMutation.mutateAsync,
-    closeAll: closeAllMutation.mutateAsync,
+    closeAsset: (asset: string, venue?: string) => closeAssetMutation.mutateAsync({ asset, venue }),
+    closeAll: (venue?: string) => closeAllMutation.mutateAsync(venue),
+    updateTpSl: (payload: UpdateTpSlInput) => updateTpSlMutation.mutateAsync(payload),
     refetch: stateQuery.refetch,
   };
 }

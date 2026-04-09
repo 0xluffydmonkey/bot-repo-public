@@ -2,14 +2,10 @@
 import logger from "./utils/logger.js";
 import { config, validateConfig, envLoadInfo, runtimePaths } from "./config/index.js";
 import { parseSignal, validateSignal } from "./parser/signal_parser.js";
-import { calculateTradeParams } from "./risk/risk_manager.js";
-import {
-  getWalletBalance,
-  initDriftClient,
-  disconnectDrift,
-} from "./executor/drift_executor.js";
+import { initDriftClient, disconnectDrift } from "./executor/drift_executor.js";
 import { perpService }          from "./trading/PerpExecutionService.js";
-import { calculateTradeCost }   from "./trading/costs/tradeCostCalculator.js";
+import { executeSignal }        from "./trading/ManualTradeService.js";
+import { resolveCloseVenue }    from "./trading/closeVenueResolver.js";
 import { positionManager } from "./trading/position-management/PositionManager.js";
 import { startTelegramListener } from "./telegram/telegram_listener.js";
 import { fetchAccountData }      from "./monitor/data_fetcher.js";
@@ -140,79 +136,51 @@ async function handleSignalMessage(text, meta = {}) {
     await new Promise((r) => setTimeout(r, config.trading.executionDelayMs));
   }
 
-  // Saldo da carteira
-  const walletBalance = await getWalletBalance();
-  if (walletBalance <= 0 && !config.trading.paperMode) {
-    logger.error(`[BOT] 💸 Saldo insuficiente: $${walletBalance}`);
-    signalStore.add(signal.signalId, { status: "skipped", reason: "insufficient_balance" });
-    state.signalIgnored(signal, 'insufficient_balance');
-    return;
-  }
-
-  // Parâmetros de risco
-  const tradeParams = await calculateTradeParams(signal, walletBalance);
-  if (!tradeParams) {
-    logger.warn(`[BOT] ⛔ Rejeitado pelo risk manager: ${signal.signalId}`);
-    signalStore.add(signal.signalId, { status: "rejected_by_risk" });
-    state.signalIgnored(signal, 'rejected_by_risk_manager');
-    return;
-  }
-
-  // Executar na venue configurada (PERP_OPEN_VENUE)
-  const activeVenue = perpService.getActiveVenue();
-  logger.info(`[BOT] 🚀 Enviando para ${activeVenue.toUpperCase()}...`);
-
-  // Estimativa de custo pré-execução (ENABLE_COST_ESTIMATION=true)
-  if (process.env.ENABLE_COST_ESTIMATION === 'true') {
-    const cost = await calculateTradeCost({
-      venue:       activeVenue,
-      asset:       tradeParams.asset,
-      notionalUSD: tradeParams.notionalValueUSD,
-      direction:   tradeParams.direction,
-    });
-    if (cost) {
-      logger.info(`[BOT] 💰 Estimativa de custo (${activeVenue.toUpperCase()}):`, {
-        event:    'cost_estimated',
-        venue:    cost.venue,
-        openFee:  `$${cost.openFeeUsd}`,
-        closeFee: `$${cost.closeFeeUsd}`,
-        carry:    `$${cost.carryCostUsd}`,
-        total:    `$${cost.totalCostUsd}`,
-      });
-    } else {
-      logger.warn(`[BOT] Estimativa de custo indisponível (${activeVenue.toUpperCase()})`);
-    }
-  }
-
+  // Núcleo de execução compartilhado com o fluxo manual:
+  //   walletBalance → calculateTradeParams → (custo) → perpService.openTrade → state.signalExecuted
+  // A orquestração (dedup, pause, signalStore, delay) permanece aqui.
   try {
-    const result = await perpService.openTrade(tradeParams);
+    const execResult = await executeSignal(signal, { withCostEstimation: true });
+
+    if (!execResult.success) {
+      // Rejeição de negócio — não é erro de execução, é decisão do pipeline
+      if (execResult.phase === 'balance') {
+        logger.error(`[BOT] 💸 ${execResult.reason}`);
+        signalStore.add(signal.signalId, { status: "skipped", reason: "insufficient_balance" });
+        state.signalIgnored(signal, 'insufficient_balance');
+      } else {
+        // phase === 'risk'
+        logger.warn(`[BOT] ⛔ Rejeitado pelo risk manager: ${signal.signalId}`);
+        signalStore.add(signal.signalId, { status: "rejected_by_risk" });
+        state.signalIgnored(signal, 'rejected_by_risk_manager');
+      }
+      return;
+    }
+
+    const { result, tradeParams } = execResult;
 
     signalStore.add(signal.signalId, {
-      status: "executed",
+      status:     "executed",
       signatures: result.signatures,
       paperTrade: result.paperTrade ?? false,
     });
 
-    state.signalExecuted(signal, result);
-
     logger.info(`[BOT] ✅ Posição aberta!`, {
-      datetime:   new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-      sinal:      signal.signalId,
-      ativo:      `${signal.direction} ${signal.asset}`,
-      entrada:    `$${signal.entry}`,
-      tp:         `$${signal.tp}`,
-      sl:         `$${signal.sl}`,
-      leverage:   `${tradeParams.leverage}x`,
-      colateral:  `$${tradeParams.positionSizeUSD.toFixed(2)}`,
-      nocional:   `$${tradeParams.notionalValueUSD.toFixed(2)}`,
-      txs:        result.signatures,
+      datetime:  new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      sinal:     signal.signalId,
+      ativo:     `${signal.direction} ${signal.asset}`,
+      entrada:   `$${signal.entry}`,
+      tp:        `$${signal.tp}`,
+      sl:        `$${signal.sl}`,
+      leverage:  `${tradeParams.leverage}x`,
+      colateral: `$${tradeParams.positionSizeUSD.toFixed(2)}`,
+      nocional:  `$${tradeParams.notionalValueUSD.toFixed(2)}`,
+      txs:       result.signatures,
     });
   } catch (err) {
     signalStore.add(signal.signalId, { status: "failed", error: err.message });
     state.addError(`Execução ${signal.signalId}`, err);
-    logger.error(
-      `[BOT] ❌ Falha ao executar ${signal.signalId}: ${err.message}`,
-    );
+    logger.error(`[BOT] ❌ Falha ao executar ${signal.signalId}: ${err.message}`);
   }
 
   logger.info(`${"═".repeat(60)}\n`);
@@ -242,11 +210,49 @@ async function startAccountPoller() {
 
 // ─── Handlers de comandos remotos (via web ou control bot) ────────────────────
 function registerCommandHandlers() {
-  // Fechar posição específica — roteado via PerpExecutionService (respeita PERP_OPEN_VENUE)
-  state.on('cmd:close', async ({ asset }) => {
-    logger.info(`[BOT] 🔒 Comando: fechar ${asset} (venue: ${perpService.getActiveVenue()})`);
+  const handleOpenManualCommand = async (params) => {
+    logger.info(`[BOT] 📤 Comando: abertura manual ${params.direction} ${params.asset}`);
     try {
-      await perpService.closeTrade(asset);
+      const { openManualTrade } = await import('./trading/ManualTradeService.js');
+      const result = await openManualTrade(params);
+      if (!result.success) {
+        logger.warn(`[BOT] ⛔ Abertura manual rejeitada: ${result.reason}`);
+        state.addError('cmd:open_manual', new Error(result.reason));
+      }
+    } catch (err) {
+      logger.error(`[BOT] ❌ Falha na abertura manual: ${err.message}`);
+      state.addError('cmd:open_manual', err);
+    }
+  };
+
+  const handleUpdateTpSlCommand = async (payload, context = 'cmd:update_tpsl') => {
+    const { asset, tp, sl } = payload ?? {};
+    logger.info(`[BOT] 🔧 Comando: atualizar TP/SL ${asset} → TP:${tp ?? '-'} SL:${sl ?? '-'}`);
+    try {
+      const { updateManualTpSl } = await import('./trading/ManualTradeService.js');
+      const result = await updateManualTpSl(asset, tp, sl);
+      if (!result.success) {
+        logger.warn(`[BOT] ⛔ Atualização TP/SL rejeitada: ${result.reason}`);
+        state.addError(`${context} ${asset}`, new Error(result.reason));
+      }
+    } catch (err) {
+      logger.error(`[BOT] ❌ Falha ao atualizar TP/SL de ${asset}: ${err.message}`);
+      state.addError(`${context} ${asset}`, err);
+    }
+  };
+
+  // Fechar posição específica — roteado via PerpExecutionService (respeita PERP_OPEN_VENUE)
+  state.on('cmd:close', async ({ asset, venue } = {}) => {
+    const { venue: resolvedVenue, source } = resolveCloseVenue(asset, venue, { allowActiveFallback: false });
+    if (source === 'unresolved') {
+      const err = new Error(`Venue não resolvida para close de ${asset}; comando recusado por segurança`);
+      logger.error(`[BOT] ⛔ ${err.message}`);
+      state.addError(`cmd:close ${asset}`, err);
+      return;
+    }
+    logger.info(`[BOT] 🔒 Comando: fechar ${asset} (venue: ${resolvedVenue})`);
+    try {
+      await perpService.closeTrade(asset, resolvedVenue);
       logger.info(`[BOT] ✅ Posição ${asset} fechada via comando`);
     } catch (err) {
       logger.error(`[BOT] ❌ Falha ao fechar ${asset}: ${err.message}`);
@@ -255,10 +261,17 @@ function registerCommandHandlers() {
   });
 
   // Fechar todas as posições — roteado via PerpExecutionService (respeita PERP_OPEN_VENUE)
-  state.on('cmd:close_all', async () => {
-    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições (venue: ${perpService.getActiveVenue()})`);
+  state.on('cmd:close_all', async ({ venue } = {}) => {
+    const { venue: resolvedVenue, source } = resolveCloseVenue(null, venue, { allowActiveFallback: false });
+    if (source === 'unresolved') {
+      const err = new Error('Venue não resolvida para close_all; comando recusado por segurança');
+      logger.error(`[BOT] ⛔ ${err.message}`);
+      state.addError('cmd:close_all', err);
+      return;
+    }
+    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições (venue: ${resolvedVenue})`);
     try {
-      const results = await perpService.closeAllTrades();
+      const results = await perpService.closeAllTrades(resolvedVenue);
       const ok = Array.isArray(results) ? results.filter(r => r.success).length : '?';
       const total = Array.isArray(results) ? results.length : '?';
       logger.info(`[BOT] ✅ Close all: ${ok}/${total} fechadas`);
@@ -266,6 +279,34 @@ function registerCommandHandlers() {
       logger.error(`[BOT] ❌ Falha no close_all: ${err.message}`);
       state.addError('cmd:close_all', err);
     }
+  });
+
+  // ── Comandos de execução manual ─────────────────────────────────────────────
+
+  // Abrir posição manualmente — passa pelo mesmo risk manager do fluxo automático
+  state.on('cmd:open_manual', handleOpenManualCommand);
+
+  // Atualizar TP/SL de uma posição aberta
+  state.on('cmd:update_tpsl', async (payload) => {
+    await handleUpdateTpSlCommand(payload, 'cmd:update_tpsl');
+  });
+
+  // Alias de compatibilidade para clientes antigos que ainda emitam:
+  //   cmd:set_tpsl { asset, type: 'tp'|'sl', price }
+  state.on('cmd:set_tpsl', async ({ asset, type, price } = {}) => {
+    const normalizedType = String(type ?? '').toLowerCase();
+    if (!asset || (normalizedType !== 'tp' && normalizedType !== 'sl') || typeof price !== 'number' || price <= 0) {
+      const err = new Error('Payload inválido para cmd:set_tpsl; esperado { asset, type: tp|sl, price>0 }');
+      logger.error(`[BOT] ❌ ${err.message}`);
+      state.addError('cmd:set_tpsl', err);
+      return;
+    }
+
+    await handleUpdateTpSlCommand({
+      asset,
+      tp: normalizedType === 'tp' ? price : null,
+      sl: normalizedType === 'sl' ? price : null,
+    }, 'cmd:set_tpsl');
   });
 }
 

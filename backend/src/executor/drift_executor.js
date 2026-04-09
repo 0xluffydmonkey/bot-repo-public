@@ -627,6 +627,158 @@ export async function closeAllPositions() {
   return results;
 }
 
+/**
+ * Atualiza TP e/ou SL de uma posição aberta de forma cirúrgica e segura.
+ *
+ * ESTRATÉGIA DE SEGURANÇA (ordem deliberada):
+ *   1. PLACE primeiro — novos TP/SL são colocados ANTES de cancelar os antigos.
+ *      Se o placement falhar, os antigos permanecem ativos → posição protegida.
+ *   2. CANCEL depois — ordens antigas são canceladas SOMENTE após placement OK.
+ *      Se o cancel falhar, posição fica com proteção dupla (aceitável) e não
+ *      lançamos exceção para não mascarar o placement bem-sucedido.
+ *
+ * GRANULARIDADE:
+ *   - Se só `tp` fornecido → cancela apenas TP antigo; SL existente intocado.
+ *   - Se só `sl` fornecido → cancela apenas SL antigo; TP existente intocado.
+ *   - Se ambos fornecidos → cancela e recria ambos.
+ *   - NÃO usa cancelOrders(PERP, marketIndex) pois isso cancela TODAS as
+ *     ordens do mercado, incluindo entradas ou outras ordens legítimas.
+ *
+ * SERIALIZAÇÃO DO SDK:
+ *   O SDK Drift serializa enums Anchor como objetos: { above: {} } / { below: {} }.
+ *   Usamos Object.keys(obj)[0] para obter o nome da variante.
+ *   Se o SDK mudar a serialização interna, revisar _getVariant().
+ *
+ * @param {string}      asset - Ex: 'SOL', 'BTC'
+ * @param {number|null} tp    - Novo take profit price (null = manter intocado)
+ * @param {number|null} sl    - Novo stop loss price (null = manter intocado)
+ * @returns {Promise<{ asset, direction, tp, sl, signatures }>}
+ */
+export async function updateTpSl(asset, tp, sl) {
+  if (config.trading.paperMode) {
+    logger.info(`[PAPER] 📝 Atualizando TP/SL ${asset} → TP:${tp ?? '(sem alteração)'} SL:${sl ?? '(sem alteração)'} (simulado)`);
+    return {
+      asset, tp, sl,
+      signatures: {
+        takeProfit: tp != null ? `PAPER_TP_${Date.now()}` : null,
+        stopLoss:   sl != null ? `PAPER_SL_${Date.now()}` : null,
+      },
+    };
+  }
+
+  const marketIndex = DRIFT_MARKET_INDEX[asset.toUpperCase()];
+  if (marketIndex === undefined) {
+    throw new Error(`[DRIFT] Ativo não suportado: ${asset}`);
+  }
+
+  const { driftClient, driftUser } = await initDriftClient();
+
+  const pos = driftUser.getPerpPosition(marketIndex);
+  if (!pos || pos.baseAssetAmount.eq(new BN(0))) {
+    throw new Error(`[DRIFT] Sem posição aberta em ${asset} para atualizar TP/SL`);
+  }
+
+  const isLong          = pos.baseAssetAmount.gt(new BN(0));
+  const baseAssetAmount = pos.baseAssetAmount.abs();
+  const direction       = isLong ? 'LONG' : 'SHORT';
+
+  // ── Identificar ordens TP/SL existentes de forma granular ─────────────────
+  // triggerCondition do SDK vem como objeto Anchor: { above: {} } ou { below: {} }
+  const _getVariant = (obj) => Object.keys(obj ?? {})[0] ?? '';
+
+  // Para LONG: TP=ABOVE, SL=BELOW | Para SHORT: TP=BELOW, SL=ABOVE
+  const tpVariant = isLong ? 'above' : 'below';
+  const slVariant = isLong ? 'below' : 'above';
+
+  // Ordens ativas no mercado que são trigger+reduceOnly (= TP/SL)
+  const userOrders = (driftUser.getUserAccount?.()?.orders ?? []).filter(o =>
+    o.orderId !== 0 &&                          // orderId=0 = slot vazio no array fixo do contrato
+    o.marketIndex === marketIndex &&
+    o.reduceOnly === true &&
+    o.triggerPrice != null && !o.triggerPrice.eq(new BN(0))  // tem triggerPrice → é TP ou SL
+  );
+
+  const existingTpOrderIds = userOrders
+    .filter(o => _getVariant(o.triggerCondition) === tpVariant)
+    .map(o => o.orderId);
+
+  const existingSlOrderIds = userOrders
+    .filter(o => _getVariant(o.triggerCondition) === slVariant)
+    .map(o => o.orderId);
+
+  logger.info(`[DRIFT] Ordens TP/SL existentes em ${asset} (${direction}):`, {
+    tpOrders: existingTpOrderIds,
+    slOrders: existingSlOrderIds,
+    atualizando: { tp: tp != null, sl: sl != null },
+  });
+
+  const signatures = {};
+  const orderIdsToCancel = [];  // preenchido SOMENTE após placement bem-sucedido
+
+  // ── FASE 1: PLACE novos TP/SL ANTES de cancelar os antigos ───────────────
+  if (tp != null) {
+    const tpTriggerCondition = isLong ? OrderTriggerCondition.ABOVE : OrderTriggerCondition.BELOW;
+    const tpCloseDirection   = isLong ? PositionDirection.SHORT      : PositionDirection.LONG;
+
+    const tpOrderParams = getTriggerLimitOrderParams({
+      marketIndex,
+      direction:        tpCloseDirection,
+      baseAssetAmount,
+      price:            toPrice(tp),
+      triggerPrice:     toPrice(tp),
+      triggerCondition: tpTriggerCondition,
+      marketType:       MarketType.PERP,
+      reduceOnly:       true,
+    });
+
+    signatures.takeProfit = await driftClient.placePerpOrder(tpOrderParams);
+    logger.info(`[DRIFT] ✅ Novo Take Profit $${tp} colocado: ${signatures.takeProfit}`);
+    // Registrar IDs antigos para cancelar SOMENTE após placement OK
+    orderIdsToCancel.push(...existingTpOrderIds);
+  }
+
+  if (sl != null) {
+    const slTriggerCondition = isLong ? OrderTriggerCondition.BELOW : OrderTriggerCondition.ABOVE;
+    const slCloseDirection   = isLong ? PositionDirection.SHORT      : PositionDirection.LONG;
+
+    const slOrderParams = getTriggerLimitOrderParams({
+      marketIndex,
+      direction:        slCloseDirection,
+      baseAssetAmount,
+      price:            isLong ? toPrice(sl * 0.995) : toPrice(sl * 1.005),
+      triggerPrice:     toPrice(sl),
+      triggerCondition: slTriggerCondition,
+      marketType:       MarketType.PERP,
+      reduceOnly:       true,
+    });
+
+    signatures.stopLoss = await driftClient.placePerpOrder(slOrderParams);
+    logger.info(`[DRIFT] ✅ Novo Stop Loss $${sl} colocado: ${signatures.stopLoss}`);
+    orderIdsToCancel.push(...existingSlOrderIds);
+  }
+
+  // ── FASE 2: CANCEL ordens antigas — SOMENTE após placement bem-sucedido ───
+  // Falha no cancel → proteção dupla (menos ideal, porém seguro).
+  // Não relançamos: seria enganoso indicar falha quando os novos já estão ativos.
+  if (orderIdsToCancel.length > 0) {
+    const deduped = [...new Set(orderIdsToCancel)];
+    try {
+      for (const orderId of deduped) {
+        await driftClient.cancelOrder(orderId, 0); // 0 = subAccountId padrão
+        logger.info(`[DRIFT] Ordem antiga cancelada: orderId=${orderId}`);
+      }
+    } catch (cancelErr) {
+      logger.warn(
+        `[DRIFT] ⚠️  Falha ao cancelar ordens antigas de ${asset}. ` +
+        `Posição pode ter TP/SL duplicados — monitore e remova manualmente se necessário. ` +
+        `IDs afetados: [${deduped.join(', ')}] | Erro: ${cancelErr.message}`
+      );
+    }
+  }
+
+  return { asset, direction, tp, sl, signatures };
+}
+
 export async function disconnectDrift() {
   try {
     if (_driftUser)   await _driftUser.unsubscribe();

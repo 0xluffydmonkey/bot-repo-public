@@ -150,6 +150,63 @@ export const phoenixPerpAdapter = {
     );
   },
 
+  /**
+   * TODO: Cancel existing TP/SL orders and place new ones on Phoenix Perps.
+   * @param {string}      asset
+   * @param {number|null} tp
+   * @param {number|null} sl
+   */
+  async updateTpSl(asset, tp, sl) {
+    throw new Error(
+      '[PHOENIX] updateTpSl não implementado — Phoenix Perps está em beta privado.'
+    );
+  },
+
+  /**
+   * TODO: Return live account snapshot for risk decisions.
+   * Should query USDC collateral and open positions via Phoenix Perps API.
+   * @returns {Promise<{ freeCollateral: number, totalEquity: number, positionCount: number, totalNotional: number }>}
+   */
+  async getAccountSnapshot() {
+    throw new Error(
+      '[PHOENIX] getAccountSnapshot não implementado — Phoenix Perps está em beta privado.'
+    );
+  },
+
+  /**
+   * Returns all asset symbols supported by Phoenix Perps.
+   * TODO: Replace with live API query when API is publicly available.
+   * @returns {string[]}
+   */
+  getSupportedAssets() {
+    throw new Error(
+      '[PHOENIX] getSupportedAssets não implementado — Phoenix Perps está em beta privado.'
+    );
+  },
+
+  /**
+   * Returns order size limits for the given asset on Phoenix Perps.
+   * TODO: Fetch real minBase/stepBase from Phoenix Perps API or on-chain data.
+   * @param {string} asset
+   * @returns {{ minBase: number, stepBase: number }}
+   */
+  getMarketLimits(asset) {
+    throw new Error(
+      '[PHOENIX] getMarketLimits não implementado — Phoenix Perps está em beta privado.'
+    );
+  },
+
+  /**
+   * Returns the platform maximum leverage for the given asset on Phoenix Perps.
+   * @param {string} asset
+   * @returns {number}
+   */
+  getPlatformMaxLeverage(asset) {
+    throw new Error(
+      '[PHOENIX] getPlatformMaxLeverage não implementado — Phoenix Perps está em beta privado.'
+    );
+  },
+
   async getBalance() {
     // TODO: Query USDC balance on Solana wallet
     throw new Error('[PHOENIX] getBalance não implementado');

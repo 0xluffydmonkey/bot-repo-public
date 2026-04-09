@@ -1,5 +1,5 @@
 import { normalizeSnapshot } from '@/lib/state-adapters';
-import type { BotState } from '@/types/state';
+import type { BotState, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -31,10 +31,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ enabled }),
     }),
-  closeAsset: (asset: string) =>
+  openTrade: (payload: ManualOpenTradeInput) =>
+    request('/api/open', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  closeAsset: (asset: string, venue?: string) =>
     request('/api/close', {
       method: 'POST',
-      body: JSON.stringify({ asset }),
+      body: JSON.stringify({ asset, venue }),
     }),
-  closeAll: () => request('/api/close_all', { method: 'POST' }),
+  closeAll: (venue?: string) =>
+    request('/api/close_all', {
+      method: 'POST',
+      body: JSON.stringify({ venue }),
+    }),
+  updateTpSl: ({ asset, tp, sl }: UpdateTpSlInput) =>
+    request('/api/tpsl', {
+      method: 'POST',
+      body: JSON.stringify({ asset, tp, sl }),
+    }),
 };

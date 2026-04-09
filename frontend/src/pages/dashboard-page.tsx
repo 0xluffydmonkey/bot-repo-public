@@ -11,6 +11,7 @@ import {
 import { AppShell } from '@/components/layout/app-shell';
 import { AnalyticsPanel, PerformancePanel, FeesPanel } from '@/components/charts/analytics-panel';
 import { ControlPanel, CompactControls } from '@/components/controls/control-panel';
+import { ManualTradePanel } from '@/components/controls/manual-trade-panel';
 import { LogStream } from '@/components/logs/log-stream';
 import { HeroStats } from '@/components/metrics/hero-stats';
 import { PositionsTable } from '@/components/positions/positions-table';
@@ -42,8 +43,10 @@ export function DashboardPage() {
     pause,
     resume,
     setAutotrading,
+    openTrade,
     closeAsset,
     closeAll,
+    updateTpSl,
     refetch,
   } = useDashboard();
 
@@ -97,6 +100,7 @@ export function DashboardPage() {
                     positions={positions}
                     pending={commandPending}
                     onCloseAsset={closeAsset}
+                    onUpdateTpSl={updateTpSl}
                     compact
                   />
                 </motion.div>
@@ -137,16 +141,28 @@ export function DashboardPage() {
                 positions={positions}
                 pending={commandPending}
                 onCloseAsset={closeAsset}
+                onUpdateTpSl={updateTpSl}
               />
             </motion.div>
           </TabsContent>
 
           {/* Operations Tab */}
           <TabsContent value="operations">
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
+              >
+                <ManualTradePanel
+                  pending={commandPending}
+                  onOpenTrade={openTrade}
+                />
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="space-y-4"
               >
                 <ControlPanel
                   paused={Boolean(snapshot?.paused)}
@@ -157,12 +173,6 @@ export function DashboardPage() {
                   onAutotrading={setAutotrading}
                   onCloseAll={closeAll}
                 />
-              </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.05 }}
-              >
                 <AlertsPanel alerts={alerts} />
               </motion.div>
             </div>

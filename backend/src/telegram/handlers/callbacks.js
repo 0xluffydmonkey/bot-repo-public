@@ -179,7 +179,7 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
       { inline_keyboard: [] }
     );
 
-    state.emit('cmd:close', { asset });
+    state.emit('cmd:close', { asset, venue: pos.venue });
 
     const closed = await waitForClose(asset, 20_000);
     const fresh  = state.getSnapshot();
@@ -209,7 +209,7 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
   if (data === 'ctrl:close_all_ok') {
     const count = state.positions.length;
     await ack(bot, queryId, `🔄 Fechando ${count} posição(ões)…`);
-    state.emit('cmd:close_all');
+    state.emit('cmd:close_all', { venue: state.positions[0]?.venue });
     return editScreen(bot, chatId, messageId,
       `🔄 <b>Fechando ${count} posição(ões)…</b>\n\nVerifique /positions em instantes.`,
       KB.backToMenuKeyboard()

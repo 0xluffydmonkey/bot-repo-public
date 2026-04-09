@@ -94,6 +94,7 @@ export interface MetricCardValue {
 
 export interface Position {
   asset: string;
+  venue?: string;
   side?: 'long' | 'short' | 'flat' | string;
   quantity?: number;
   entryPrice?: number;
@@ -112,6 +113,22 @@ export interface Position {
   takeProfit?: number | null;
   marginType?: string;
   [key: string]: unknown;
+}
+
+export interface ManualOpenTradeInput {
+  asset: string;
+  direction: 'LONG' | 'SHORT';
+  entry: number;
+  tp: number;
+  sl: number;
+  leverage: number;
+  marginType?: 'isolated' | 'cross';
+}
+
+export interface UpdateTpSlInput {
+  asset: string;
+  tp?: number | null;
+  sl?: number | null;
 }
 
 export interface ActivityLog {

@@ -170,6 +170,59 @@ export const jupiterPerpAdapter = {
     );
   },
 
+  /**
+   * TODO: Cancel existing TP/SL orders and place new ones on Jupiter Perps.
+   * @param {string}      asset
+   * @param {number|null} tp
+   * @param {number|null} sl
+   */
+  async updateTpSl(asset, tp, sl) {
+    throw new Error(
+      '[JUPITER] updateTpSl não implementado — Jupiter Perps REST API está em desenvolvimento.'
+    );
+  },
+
+  /**
+   * TODO: Return live account snapshot for risk decisions.
+   * Should query USDC collateral and open positions via Jupiter Perps API.
+   * @returns {Promise<{ freeCollateral: number, totalEquity: number, positionCount: number, totalNotional: number }>}
+   */
+  async getAccountSnapshot() {
+    throw new Error(
+      '[JUPITER] getAccountSnapshot não implementado — Jupiter Perps REST API está em desenvolvimento.'
+    );
+  },
+
+  /**
+   * Returns all asset symbols supported by Jupiter Perps.
+   * TODO: Replace with live API query when API stabilises.
+   * @returns {string[]}
+   */
+  getSupportedAssets() {
+    return Object.keys(JUPITER_PERPS.ASSET_MINTS);
+  },
+
+  /**
+   * Returns order size limits for the given asset on Jupiter Perps.
+   * TODO: Fetch real minBase/stepBase from Jupiter Perps API or on-chain data.
+   * @param {string} asset
+   * @returns {{ minBase: number, stepBase: number }}
+   */
+  getMarketLimits(asset) {
+    throw new Error(
+      '[JUPITER] getMarketLimits não implementado — Jupiter Perps REST API está em desenvolvimento.'
+    );
+  },
+
+  /**
+   * Returns the platform maximum leverage for the given asset on Jupiter Perps.
+   * @param {string} asset
+   * @returns {number}
+   */
+  getPlatformMaxLeverage(asset) {
+    return JUPITER_PERPS.MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()] ?? 10;
+  },
+
   async getBalance() {
     // TODO: Query USDC balance on Solana wallet (used as collateral for Jupiter Perps)
     // const keypair    = loadWalletKeypair();

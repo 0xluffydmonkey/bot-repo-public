@@ -26,8 +26,10 @@ Before running `./start.sh` for the first time:
 - [ ] `npm install` run inside `backend/`
 - [ ] `backend/.env` created from `backend/.env.example`
 - [ ] Secrets file created at `/opt/bot/secrets/bot-secrets.env`
-- [ ] Wallet keypair at `/opt/bot/secrets/drift-bot-wallet.json`
+- [ ] Wallet keypair at `/opt/bot/secrets/drift-bot-wallet.json` (set as `BOT_WALLET_PATH`)
 - [ ] `chmod +x start.sh stop.sh status.sh`
+
+> **Multi-venue wallets:** to use a dedicated wallet per DEX, add `WALLET_DRIFT_PATH`, `WALLET_JUPITER_PATH`, or `WALLET_PHOENIX_PATH` to your secrets file. See [Configuration](docs/en/configuration.md) for details.
 
 See [docs/en/installation.md](docs/en/installation.md) for step-by-step instructions.
 
@@ -61,9 +63,14 @@ In safe mode the bot reads signals and validates them, but **does not submit any
 |-------|-|
 | [Installation](docs/en/installation.md) | What you need and how to set it up |
 | [Configuration](docs/en/configuration.md) | Settings, secrets, feature toggles |
+| [Close Policy](docs/en/close-policy.md) | Venue resolution and safety rules for close flows |
 | [Running](docs/en/running.md) | Start, stop, first run, paper vs live |
 | [Systemd](docs/en/systemd.md) | Auto-start on server (advanced) |
 | [Troubleshooting](docs/en/troubleshooting.md) | Fixes for common errors |
+
+Operational note:
+
+- Close flows are venue-aware and follow different safety rules depending on operational intent. See [Close Policy](docs/en/close-policy.md) for the canonical definition.
 
 ---
 

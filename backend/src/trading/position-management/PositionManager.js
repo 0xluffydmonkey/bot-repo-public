@@ -21,6 +21,7 @@ import logger from '../../utils/logger.js';
 import { telegramAlertService } from './TelegramService.js';
 import { savePositionTracking, loadPositionTracking } from './PositionStore.js';
 import { perpService } from '../PerpExecutionService.js';
+import { resolveCloseVenue } from '../closeVenueResolver.js';
 
 const DEBOUNCE_MS = 1_000; // max one trailing update per asset per second
 
@@ -42,7 +43,6 @@ class PositionManager {
     this._enableTrailing    = process.env.ENABLE_TRAILING_STOP    !== 'false';
     this._trailingPct       = parseFloat(process.env.TRAILING_STOP_PERCENT ?? '5') / 100;
     this._trailingAfterPct  = parseFloat(process.env.TRAILING_STOP_ONLY_AFTER_PROFIT_PERCENT ?? '3') / 100;
-    this._venue             = (process.env.PERP_OPEN_VENUE ?? 'drift').toLowerCase();
   }
 
   /**
@@ -94,6 +94,7 @@ class PositionManager {
 
   _processPosition(position) {
     const { asset, direction, entryPrice, markPrice, pnlPct } = position;
+    const venue = this._resolvePositionVenue(position);
 
     // Guard: require minimum data
     if (!asset || !direction || typeof markPrice !== 'number' || markPrice <= 0) return;
@@ -110,6 +111,7 @@ class PositionManager {
         lowestPrice:  markPrice,
         stopPrice:    null,
         alerted:      false,
+        venue,
       };
       this._tracking.set(asset, initial);
       savePositionTracking(this._tracking);
@@ -118,11 +120,12 @@ class PositionManager {
         asset,
         direction,
         entryPrice: entryPrice ?? markPrice,
-        venue:      this._venue,
+        venue,
       });
     }
 
     const track = this._tracking.get(asset);
+    if (!track.venue) track.venue = venue;
 
     // Update price extremes (always)
     let changed = false;
@@ -155,7 +158,7 @@ class PositionManager {
             direction,
             markPrice,
             stopPrice:  track.stopPrice,
-            venue:      this._venue,
+            venue:      track.venue ?? venue,
           });
           this._triggerClose(asset);
           return;
@@ -247,10 +250,19 @@ class PositionManager {
     }
 
     this._closing.add(asset);
-    logger.warn(`[PM] Iniciando close via PerpExecutionService — ${asset} (venue: ${this._venue})`);
+    const trackedVenue = this._tracking.get(asset)?.venue ?? null;
+    const { venue, source } = resolveCloseVenue(asset, trackedVenue, { allowActiveFallback: false });
+    if (source === 'unresolved') {
+      const err = new Error(`Venue não resolvida para trailing close de ${asset}; fechamento recusado por segurança`);
+      logger.error(`[PM] ⛔ ${err.message}`);
+      state.addError(`pm:close ${asset}`, err);
+      this._closing.delete(asset);
+      return;
+    }
+    logger.warn(`[PM] Iniciando close via PerpExecutionService — ${asset} (venue: ${venue})`);
 
     // Use the service layer — routes to the same venue that opened the trade
-    perpService.closeTrade(asset)
+    perpService.closeTrade(asset, venue)
       .then(() => {
         logger.info(`[PM] Close concluído — ${asset}`);
       })
@@ -263,10 +275,11 @@ class PositionManager {
 
   _sendProfitAlert(position, stopPrice) {
     const { asset, direction, entryPrice, markPrice, pnlPct } = position;
+    const venue = this._tracking.get(asset)?.venue ?? this._resolvePositionVenue(position);
 
     const message = telegramAlertService.formatProfitAlert({
       symbol:       `${direction} ${asset}`,
-      venue:        this._venue,
+      venue,
       entryPrice:   entryPrice ?? 0,
       currentPrice: markPrice,
       pnlPct:       pnlPct ?? 0,
@@ -277,6 +290,14 @@ class PositionManager {
     telegramAlertService.sendAlert(message).catch(err => {
       logger.warn(`[PM] Falha no alerta de lucro (${asset}): ${err.message}`);
     });
+  }
+
+  _resolvePositionVenue(position) {
+    return (
+      position?.venue ??
+      this._tracking.get(position?.asset)?.venue ??
+      perpService.getActiveVenue()
+    );
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────

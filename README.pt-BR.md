@@ -26,8 +26,10 @@ Antes de rodar `./start.sh` pela primeira vez:
 - [ ] `npm install` executado dentro de `backend/`
 - [ ] `backend/.env` criado a partir de `backend/.env.example`
 - [ ] Arquivo de segredos criado em `/opt/bot/secrets/bot-secrets.env`
-- [ ] Carteira (keypair) em `/opt/bot/secrets/drift-bot-wallet.json`
+- [ ] Carteira (keypair) em `/opt/bot/secrets/drift-bot-wallet.json` (definida como `BOT_WALLET_PATH`)
 - [ ] `chmod +x start.sh stop.sh status.sh`
+
+> **Carteiras multi-venue:** para usar uma carteira dedicada por DEX, adicione `WALLET_DRIFT_PATH`, `WALLET_JUPITER_PATH` ou `WALLET_PHOENIX_PATH` ao seu arquivo de segredos. Veja [Configuração](docs/pt-BR/configuracao.md) para detalhes.
 
 Veja [docs/pt-BR/instalacao.md](docs/pt-BR/instalacao.md) para instruções passo a passo.
 
@@ -61,9 +63,14 @@ No modo seguro, o bot lê os sinais e os valida, mas **não envia nenhuma transa
 |------|-|
 | [Instalação](docs/pt-BR/instalacao.md) | O que você precisa e como configurar |
 | [Configuração](docs/pt-BR/configuracao.md) | Configurações, segredos, módulos ativos |
+| [Política de Close](docs/pt-BR/politica-de-close.md) | Regras de resolução de venue e segurança para closes |
 | [Executando](docs/pt-BR/executando.md) | Iniciar, parar, primeiro uso, paper vs real |
 | [Systemd](docs/pt-BR/systemd.md) | Auto-inicialização em servidor (avançado) |
 | [Solução de Problemas](docs/pt-BR/problemas.md) | Correções para erros comuns |
+
+Nota operacional:
+
+- Os fluxos de close são venue-aware e seguem regras de segurança diferentes conforme a intenção operacional. Veja [Política de Close](docs/pt-BR/politica-de-close.md) para a definição canônica.
 
 ---
 
