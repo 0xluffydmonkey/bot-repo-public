@@ -153,7 +153,7 @@ export function startControlBot(token, allowedIds = []) {
         sessions.clearWaiting(userId);
         sessions.set(userId, { manualOpenDraft: params });
 
-        const text = S.renderConfirmManualOpen(params);
+        const text = S.renderConfirmManualOpen(params, state.status.mode === 'paper');
         const keyboard = KB.manualOpenConfirmKeyboard();
         const session = sessions.get(userId);
 

@@ -146,7 +146,7 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
   }
 
   if (data === 'menu:positions') {
-    return show(S.renderPositionsList(snap.positions), KB.positionsListKeyboard(snap.positions));
+    return show(S.renderPositionsList(snap.positions, snap.status.mode === 'paper'), KB.positionsListKeyboard(snap.positions));
   }
 
   if (data === 'menu:pnl') {

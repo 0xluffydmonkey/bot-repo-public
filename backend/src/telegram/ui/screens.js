@@ -4,7 +4,7 @@
 
 import {
   fmt, fmtSign, fmtPrice, fmtPct,
-  fmtUptime, fmtDirIcon, fmtPnlIcon, fmtTime, esc,
+  fmtUptime, fmtDirIcon, fmtPnlIcon, fmtTime, esc, paperBanner,
 } from './formatters.js';
 
 // ── Menu principal ─────────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ export function renderBalance(account, session) {
 }
 
 // ── Lista de posições (header + instrução; itens ficam nos botões) ────────────
-export function renderPositionsList(positions) {
+export function renderPositionsList(positions, isPaper = false) {
   if (!positions.length) {
     return [
       `📭 <b>Nenhuma posição aberta</b>`,
@@ -88,7 +88,7 @@ export function renderPositionsList(positions) {
   }
 
   const lines = [
-    `📊 <b>Posições Abertas (${positions.length})</b>`,
+    `${paperBanner(isPaper)}📊 <b>Posições Abertas (${positions.length})</b>`,
     ``,
     `Selecione uma posição para ver detalhes:`,
     ``,
@@ -113,6 +113,7 @@ export function renderPositionDetail(pos, snap) {
   const marginType = pos.marginType ?? 'ISOLATED';
   const dirIcon    = fmtDirIcon(pos.direction);
   const pnlIcon    = fmtPnlIcon(pos.pnlUSD);
+  const isPaper    = snap?.status?.mode === 'paper';
 
   // Tenta recuperar o signalId do histórico de executados
   const executed = snap?.signals?.executed ?? [];
@@ -120,7 +121,7 @@ export function renderPositionDetail(pos, snap) {
   const idTag    = signalId ? ` <code>#${esc(signalId)}</code>` : '';
 
   return [
-    `📋 <b>Posição${idTag}</b>`,
+    `${paperBanner(isPaper)}📋 <b>Posição${idTag}</b>`,
     ``,
     `${dirIcon} <b>${esc(pos.asset)} ${pos.direction}</b>  ⚡ ${lev}x <i>(${esc(marginType)})</i>`,
     `Colateral: <code>${fmt(pos.collateralUSD)}</code>`,
@@ -310,9 +311,9 @@ export function renderAskManualOpen() {
   ].join('\n');
 }
 
-export function renderConfirmManualOpen(params) {
+export function renderConfirmManualOpen(params, isPaper = false) {
   return [
-    `⚠️ <b>Confirmar Abertura Manual</b>`,
+    `${paperBanner(isPaper)}⚠️ <b>Confirmar Abertura Manual</b>`,
     ``,
     `<b>Ativo:</b> ${esc(params.asset)}`,
     `<b>Lado:</b> ${esc(params.direction)}`,

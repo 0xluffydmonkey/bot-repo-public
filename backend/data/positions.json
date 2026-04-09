@@ -2,8 +2,8 @@
   "BTC": {
     "direction": "LONG",
     "entryPrice": 68497.25,
-    "highestPrice": 69866.6712,
-    "lowestPrice": 67186.6846,
+    "highestPrice": 69733.4649,
+    "lowestPrice": 67128.3942,
     "stopPrice": null,
     "alerted": false,
     "venue": "paper"

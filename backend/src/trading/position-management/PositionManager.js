@@ -284,6 +284,7 @@ class PositionManager {
       currentPrice: markPrice,
       pnlPct:       pnlPct ?? 0,
       stopPrice,
+      isPaper:      state.status.mode === 'paper',
     });
 
     // sendAlert is already wrapped in try/catch internally; belt-and-suspenders here

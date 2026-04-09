@@ -115,22 +115,24 @@ class TelegramAlertService {
    * Format a profit threshold alert message.
    *
    * @param {object} params
-   * @param {string} params.symbol       - e.g. 'LONG SOL'
-   * @param {string} params.venue        - e.g. 'drift'
-   * @param {number} params.entryPrice
-   * @param {number} params.currentPrice
-   * @param {number} params.pnlPct       - percentage (e.g. 10.5 for 10.5%)
-   * @param {number|null} params.stopPrice
+   * @param {string}       params.symbol       - e.g. 'LONG SOL'
+   * @param {string}       params.venue        - e.g. 'drift'
+   * @param {number}       params.entryPrice
+   * @param {number}       params.currentPrice
+   * @param {number}       params.pnlPct       - percentage (e.g. 10.5 for 10.5%)
+   * @param {number|null}  params.stopPrice
+   * @param {boolean}      [params.isPaper=false]
    * @returns {string} HTML-formatted message
    */
-  formatProfitAlert({ symbol, venue, entryPrice, currentPrice, pnlPct, stopPrice }) {
+  formatProfitAlert({ symbol, venue, entryPrice, currentPrice, pnlPct, stopPrice, isPaper = false }) {
     const sign      = pnlPct >= 0 ? '+' : '';
     const stopLine  = stopPrice !== null && stopPrice !== undefined
       ? `$${stopPrice.toFixed(4)}`
       : 'N/A';
+    const paperLine = isPaper ? `🧪 <b>PAPER</b> — ` : '';
 
     return (
-      `🚀 <b>Alerta de Lucro — ${symbol}</b>\n` +
+      `${paperLine}🚀 <b>Alerta de Lucro — ${symbol}</b>\n` +
       `\n` +
       `📍 <b>Venue:</b> ${venue.toUpperCase()}\n` +
       `📈 <b>Entrada:</b> <code>$${entryPrice.toFixed(4)}</code>\n` +

@@ -7,14 +7,14 @@ import state  from '../core/state.js';
 import logger from '../utils/logger.js';
 import { positionCardKeyboard } from './ui/keyboards.js';
 import {
-  fmt, fmtSign, fmtPrice, fmtPct, fmtPnlIcon, fmtDirIcon, fmtTime, esc,
+  fmt, fmtSign, fmtPrice, fmtPct, fmtPnlIcon, fmtDirIcon, fmtTime, esc, paperBanner,
 } from './ui/formatters.js';
 
 const HTML = { parse_mode: 'HTML', disable_web_page_preview: true };
 
 // ── Renderizadores ────────────────────────────────────────────────────────────
 
-function renderCard(pos, signalId) {
+function renderCard(pos, signalId, isPaper = false) {
   const lev        = Math.round(pos.leverage ?? 0);
   const marginType = pos.marginType ?? 'ISOLATED';
   const dirIcon    = fmtDirIcon(pos.direction);
@@ -22,7 +22,7 @@ function renderCard(pos, signalId) {
   const idTag      = signalId ? ` <code>#${esc(String(signalId))}</code>` : '';
 
   return [
-    `📋 <b>Posição aberta${idTag}</b>`,
+    `${paperBanner(isPaper)}📋 <b>Posição aberta${idTag}</b>`,
     ``,
     `${dirIcon} <b>${esc(pos.asset)} ${pos.direction}</b>  ⚡ ${lev}x <i>(${esc(marginType)})</i>`,
     `Colateral: <code>${fmt(pos.collateralUSD ?? 0)}</code>`,
@@ -39,22 +39,22 @@ function renderCard(pos, signalId) {
   ].filter(v => v != null).join('\n');
 }
 
-function renderClosed(card) {
+function renderClosed(card, isPaper = false) {
   return [
-    `✅ <b>Posição fechada: ${esc(card.asset)}</b>`,
+    `${paperBanner(isPaper)}✅ <b>Posição fechada: ${esc(card.asset)}</b>`,
     ``,
     `Posição não está mais em aberto.`,
     `Use /pnl para ver o resultado final da sessão.`,
   ].join('\n');
 }
 
-function renderMilestone(pos, milestone) {
+function renderMilestone(pos, milestone, isPaper = false) {
   const sign    = milestone > 0 ? '+' : '';
   const emoji   = milestone > 0 ? '🎉' : '⚠️';
   const dirIcon = fmtDirIcon(pos.direction);
 
   return [
-    `${emoji} <b>Milestone: ${sign}${milestone}%</b>`,
+    `${paperBanner(isPaper)}${emoji} <b>Milestone: ${sign}${milestone}%</b>`,
     ``,
     `${dirIcon} <b>${esc(pos.asset)} ${pos.direction}</b>`,
     `PnL: <b>${fmtSign(pos.pnlUSD)}</b>  (${fmtPct(pos.pnlPct)})`,
@@ -121,7 +121,8 @@ export function startPositionTracker(bot, chatIds, options = {}) {
   // ── Envio do card inicial ─────────────────────────────────────────────────
 
   async function createCard(pos, signalId) {
-    const text     = renderCard(pos, signalId);
+    const isPaper  = state.status.mode === 'paper';
+    const text     = renderCard(pos, signalId, isPaper);
     const keyboard = positionCardKeyboard(pos.asset);
     const messageIds = new Map();
 
@@ -155,7 +156,8 @@ export function startPositionTracker(bot, chatIds, options = {}) {
     if (now - card.lastRefresh < minRefreshMs) return;
     card.lastRefresh = now;
 
-    const text     = renderCard(pos, card.signalId);
+    const isPaper  = state.status.mode === 'paper';
+    const text     = renderCard(pos, card.signalId, isPaper);
     const keyboard = positionCardKeyboard(pos.asset);
 
     for (const [chatId, messageId] of card.messageIds) {
@@ -178,7 +180,8 @@ export function startPositionTracker(bot, chatIds, options = {}) {
   // ── Notificação de fechamento ─────────────────────────────────────────────
 
   async function notifyClosed(card) {
-    const text = renderClosed(card);
+    const isPaper = state.status.mode === 'paper';
+    const text = renderClosed(card, isPaper);
 
     for (const [chatId, messageId] of card.messageIds) {
       try {
@@ -207,7 +210,8 @@ export function startPositionTracker(bot, chatIds, options = {}) {
 
     for (const m of newMilestones) {
       card.milestonesFired.add(m);
-      const text = renderMilestone(pos, m);
+      const isPaper = state.status.mode === 'paper';
+      const text = renderMilestone(pos, m, isPaper);
 
       for (const chatId of chatIds) {
         try {

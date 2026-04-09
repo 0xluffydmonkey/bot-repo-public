@@ -65,3 +65,15 @@ export function esc(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+/**
+ * Returns a paper-mode title prefix, or empty string in live mode.
+ * Use at the start of any Telegram message title that represents a trade or position,
+ * so that paper and live messages are visually unambiguous when they arrive.
+ *
+ * @param {boolean} isPaper
+ * @returns {string}
+ */
+export function paperBanner(isPaper) {
+  return isPaper ? '🧪 <b>PAPER</b> — ' : '';
+}

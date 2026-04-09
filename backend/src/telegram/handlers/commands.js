@@ -39,7 +39,7 @@ export function registerCommandHandlers(bot, handle) {
   bot.onText(/^\/positions(@\S+)?$/, (msg) => handle(msg, async (chatId, msg) => {
     const snap = state.getSnapshot();
     await send(bot, chatId, msg.from?.id,
-      S.renderPositionsList(snap.positions),
+      S.renderPositionsList(snap.positions, snap.status.mode === 'paper'),
       KB.positionsListKeyboard(snap.positions)
     );
   }));
