@@ -9,6 +9,12 @@ import type { ActivityLog, ManualOpenTradeInput, UpdateTpSlInput } from '@/types
 
 let socket: Socket | null = null;
 
+function getApiToken() {
+  if (typeof window === 'undefined') return null;
+  const token = window.localStorage.getItem('trade-dashboard-api-token');
+  return token && token.trim().length > 0 ? token.trim() : null;
+}
+
 function makeLog(message: string, level: ActivityLog['level'], source: ActivityLog['source'], meta?: Record<string, unknown>): ActivityLog {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -48,9 +54,13 @@ export function useDashboard() {
   }, [stateQuery.data, setSnapshot, setConnection, socketConnected]);
 
   useEffect(() => {
+    const token = getApiToken();
+
     if (!socket) {
       socket = io('/', {
         transports: ['websocket', 'polling'],
+        auth: token ? { token } : undefined,
+        extraHeaders: token ? { 'x-api-token': token } : undefined,
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelayMax: 5_000,

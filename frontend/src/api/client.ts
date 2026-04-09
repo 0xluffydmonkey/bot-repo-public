@@ -1,10 +1,18 @@
 import { normalizeSnapshot } from '@/lib/state-adapters';
 import type { BotState, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
+function getApiToken() {
+  if (typeof window === 'undefined') return null;
+  const token = window.localStorage.getItem('trade-dashboard-api-token');
+  return token && token.trim().length > 0 ? token.trim() : null;
+}
+
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
+  const token = getApiToken();
   const response = await fetch(input, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'X-API-Token': token } : {}),
       ...(init?.headers ?? {}),
     },
     ...init,

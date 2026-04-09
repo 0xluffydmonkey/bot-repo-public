@@ -14,9 +14,9 @@ export const phoenixVenueManifest = {
     supportsMonitoring: false,
     supportsUpdateTpSl: false,
     supportsAccountSnapshot: false,
-    supportsMarketLimits: false,
+    supportsMarketLimits: true,
     supportsBalance: false,
-    supportsSupportedAssets: false,
-    supportsPlatformMaxLeverage: false,
+    supportsSupportedAssets: true,
+    supportsPlatformMaxLeverage: true,
   },
 };

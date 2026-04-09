@@ -2,7 +2,9 @@
 // Routes trade execution to the configured venue using VenueRegistry.
 
 import logger from '../utils/logger.js';
+import { config } from '../config/index.js';
 import { venueRegistry } from '../venues/registerBuiltInVenues.js';
+import { paperEngine } from './paperEngine.js';
 
 function requireCapability(venue, capability, actionLabel) {
   if (!venueRegistry.supports(venue, capability)) {
@@ -16,6 +18,7 @@ export const perpService = {
    * @param {object} tradeParams - output of risk_manager.calculateTradeParams
    */
   async openTrade(tradeParams) {
+    if (config.trading.paperMode) return paperEngine.openTrade(tradeParams);
     const venue = venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsOpenTrade', 'abertura de trade');
     const adapter = venueRegistry.getExecutionAdapter(venue);
@@ -29,6 +32,7 @@ export const perpService = {
    * @param {string|null} venueOverride - optional explicit venue for this close
    */
   async closeTrade(asset, venueOverride = null) {
+    if (config.trading.paperMode) return paperEngine.closeTrade(asset);
     const venue = venueOverride ?? venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsCloseTrade', 'fechamento de trade');
     const adapter = venueRegistry.getExecutionAdapter(venue);
@@ -40,6 +44,7 @@ export const perpService = {
    * @param {string|null} venueOverride - optional explicit venue for this close-all
    */
   async closeAllTrades(venueOverride = null) {
+    if (config.trading.paperMode) return paperEngine.closeAllTrades();
     const venue = venueOverride ?? venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsCloseAll', 'close all');
     const adapter = venueRegistry.getExecutionAdapter(venue);
@@ -54,6 +59,7 @@ export const perpService = {
    * @param {number|null} sl    - new stop loss price (null = leave unchanged)
    */
   async updateTpSl(asset, tp, sl) {
+    if (config.trading.paperMode) return paperEngine.updateTpSl(asset, tp, sl);
     const venue = venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsUpdateTpSl', 'atualizacao de TP/SL');
     const adapter = venueRegistry.getExecutionAdapter(venue);
@@ -66,6 +72,7 @@ export const perpService = {
    * @returns {Promise<number>} balance in USD
    */
   async getBalance() {
+    if (config.trading.paperMode) return paperEngine.getBalance();
     const venue = venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsBalance', 'consulta de saldo');
     const adapter = venueRegistry.getExecutionAdapter(venue);
@@ -79,6 +86,7 @@ export const perpService = {
    * @returns {Promise<{ freeCollateral: number, totalEquity: number, positionCount: number, totalNotional: number }>}
    */
   async getAccountSnapshot() {
+    if (config.trading.paperMode) return paperEngine.getAccountSnapshot();
     const venue = venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsAccountSnapshot', 'snapshot de conta');
     const adapter = venueRegistry.getExecutionAdapter(venue);

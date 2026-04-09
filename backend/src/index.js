@@ -144,7 +144,11 @@ async function handleSignalMessage(text, meta = {}) {
 
     if (!execResult.success) {
       // Rejeição de negócio — não é erro de execução, é decisão do pipeline
-      if (execResult.phase === 'balance') {
+      if (execResult.phase === 'venue') {
+        logger.error(`[BOT] 🚫 Venue não pronta: ${execResult.reason}`);
+        signalStore.add(signal.signalId, { status: "skipped", reason: "venue_not_ready" });
+        state.signalIgnored(signal, `venue_not_ready: ${execResult.reason}`);
+      } else if (execResult.phase === 'balance') {
         logger.error(`[BOT] 💸 ${execResult.reason}`);
         signalStore.add(signal.signalId, { status: "skipped", reason: "insufficient_balance" });
         state.signalIgnored(signal, 'insufficient_balance');
@@ -335,6 +339,22 @@ async function main() {
 
   // Inicializar estado
   state.setMode(config.trading.paperMode ? 'paper' : 'live');
+
+  // Log de venue ativa e capabilities — visível no startup para diagnóstico rápido
+  {
+    const activeVenue    = perpService.getActiveVenue();
+    const capabilities   = perpService.getCapabilities();
+    const readyFlags     = Object.entries(capabilities)
+      .filter(([, v]) => v)
+      .map(([k]) => k.replace(/^supports/, '').replace(/([A-Z])/g, c => `_${c.toLowerCase()}`).slice(1));
+    const notReadyFlags  = Object.entries(capabilities)
+      .filter(([, v]) => !v)
+      .map(([k]) => k.replace(/^supports/, '').replace(/([A-Z])/g, c => `_${c.toLowerCase()}`).slice(1));
+    logger.info(`[BOT] Venue ativa: ${activeVenue.toUpperCase()}`, {
+      pronto:     readyFlags.length  > 0 ? readyFlags.join(', ')  : '(nenhuma)',
+      naoSuporta: notReadyFlags.length > 0 ? notReadyFlags.join(', ') : '(nenhuma)',
+    });
+  }
 
   // Iniciar rastreamento de posições (alertas + trailing stop)
   positionManager.start();

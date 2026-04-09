@@ -142,4 +142,11 @@ export function registerCommandHandlers(bot, handle) {
       KB.confirmCloseAllKeyboard()
     );
   }));
+
+  // ── /open ───────────────────────────────────────────────────────────────────
+  bot.onText(/^\/open(@\S+)?$/, (msg) => handle(msg, async (chatId, msg) => {
+    const userId = String(msg.from?.id);
+    sessions.setWaiting(userId, { kind: 'manual_open' });
+    await send(bot, chatId, msg.from?.id, S.renderAskManualOpen(), KB.manualOpenInputKeyboard());
+  }));
 }

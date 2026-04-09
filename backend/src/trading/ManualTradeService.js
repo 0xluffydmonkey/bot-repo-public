@@ -41,6 +41,49 @@ import { resolveCloseVenue } from './closeVenueResolver.js';
  */
 export async function executeSignal(signal, opts = {}) {
   const { withCostEstimation = false } = opts;
+  const activeVenue = perpService.getActiveVenue();
+
+  // ── 0. Pré-validação de capabilities da venue ───────────────────────────────
+  // Bloqueia venues ainda não prontas ANTES de tentar saldo, risk manager ou adapter.
+  //
+  // Capabilities exigidas em TODOS os modos (paper e live):
+  //   supportsOpenTrade           — execução da ordem (simulada ou real)
+  //   supportsSupportedAssets     — risk manager usa no step 0 (validar ativo)
+  //   supportsPlatformMaxLeverage — risk manager usa no step 1 (cap de leverage)
+  //   supportsMarketLimits        — risk manager usa no step 8 (step size / minBase)
+  //
+  // Capabilities exigidas SOMENTE em live:
+  //   supportsBalance         — getBalance() chama o adapter; em paper retorna constante
+  //   supportsAccountSnapshot — risk manager step 3 só chama em live; paper usa walletBalance
+  const capabilities = perpService.getCapabilities();
+  // In paper mode only the three static-data capabilities are required:
+  // the execution capabilities (open/close/balance/snapshot) are intercepted
+  // by PerpExecutionService before reaching the adapter.
+  const requiredCapabilities = [
+    ['supportsSupportedAssets',     'lista de ativos suportados'],
+    ['supportsPlatformMaxLeverage', 'alavancagem maxima por ativo'],
+    ['supportsMarketLimits',        'market limits'],
+  ];
+
+  if (!config.trading.paperMode) {
+    requiredCapabilities.push(
+      ['supportsOpenTrade',       'abertura de trade'],
+      ['supportsBalance',         'consulta de saldo'],
+      ['supportsAccountSnapshot', 'snapshot de conta'],
+    );
+  }
+
+  const missingCapabilities = requiredCapabilities
+    .filter(([capability]) => !capabilities?.[capability])
+    .map(([, label]) => label);
+
+  if (missingCapabilities.length > 0) {
+    return {
+      success: false,
+      phase: 'venue',
+      reason: `Venue "${activeVenue}" nao esta pronta para execucao: faltam ${missingCapabilities.join(', ')}`,
+    };
+  }
 
   // ── 1. Verificar saldo — via PerpExecutionService (venue-agnostic) ──────────
   const walletBalance = await perpService.getBalance();
@@ -87,7 +130,6 @@ export async function executeSignal(signal, opts = {}) {
   }
 
   // ── 4. Execução — pode lançar exceção ──────────────────────────────────────
-  const activeVenue = perpService.getActiveVenue();
   logger.info(`[EXEC] 🚀 Enviando para ${activeVenue.toUpperCase()}...`);
 
   const result = await perpService.openTrade(tradeParams);  // lança se falhar

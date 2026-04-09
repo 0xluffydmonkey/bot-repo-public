@@ -292,6 +292,40 @@ export function renderAskTpSl(pos, type) {
   ].join('\n');
 }
 
+// ── Solicitar abertura manual ────────────────────────────────────────────────
+export function renderAskManualOpen() {
+  return [
+    `📝 <b>Abertura Manual</b>`,
+    ``,
+    `Envie a ordem em <b>uma única linha</b> usando este formato:`,
+    `<code>ATIVO DIRECAO ENTRADA TP SL LEVERAGE [MARGEM]</code>`,
+    ``,
+    `<b>Exemplo:</b>`,
+    `<code>SOL LONG 150 165 145 5 isolated</code>`,
+    ``,
+    `Direção: <code>LONG</code> ou <code>SHORT</code>`,
+    `Margem: <code>isolated</code> ou <code>cross</code> (opcional, padrão: <code>isolated</code>)`,
+    ``,
+    `<i>O bot mostrará uma tela de confirmação antes de executar.</i>`,
+  ].join('\n');
+}
+
+export function renderConfirmManualOpen(params) {
+  return [
+    `⚠️ <b>Confirmar Abertura Manual</b>`,
+    ``,
+    `<b>Ativo:</b> ${esc(params.asset)}`,
+    `<b>Lado:</b> ${esc(params.direction)}`,
+    `<b>Entrada:</b> <code>${fmtPrice(params.entry)}</code>`,
+    `<b>TP:</b> <code>${fmtPrice(params.tp)}</code>`,
+    `<b>SL:</b> <code>${fmtPrice(params.sl)}</code>`,
+    `<b>Leverage:</b> <code>${esc(String(params.leverage))}x</code>`,
+    `<b>Margem:</b> <code>${esc(params.marginType ?? 'isolated')}</code>`,
+    ``,
+    `Confirma o envio desta ordem manual?`,
+  ].join('\n');
+}
+
 // ── Erros recentes ────────────────────────────────────────────────────────────
 export function renderErrors(errors) {
   if (!errors.length) return '✅ <b>Sem erros recentes</b>';

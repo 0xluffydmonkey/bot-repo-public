@@ -33,7 +33,7 @@ class SessionManager {
     return this.get(userId).waitingFor ?? null;
   }
 
-  /** @param {{ type: 'tp'|'sl', asset: string }} waitingFor */
+  /** @param {Object} waitingFor */
   setWaiting(userId, waitingFor) {
     this.set(userId, { waitingFor });
   }
@@ -53,5 +53,6 @@ export default new SessionManager();
  * @property {number}  [messageId]   - ID da última mensagem enviada pelo bot (para edição)
  * @property {number}  [chatId]      - Chat ID do usuário
  * @property {string}  [screen]      - Nome da tela atual
- * @property {Object}  [waitingFor]  - { type: 'tp'|'sl', asset: string } | null
+ * @property {Object}  [waitingFor]  - { kind?: 'tpsl'|'manual_open', type?: 'tp'|'sl', asset?: string } | null
+ * @property {Object}  [manualOpenDraft] - parâmetros parseados de abertura manual
  */

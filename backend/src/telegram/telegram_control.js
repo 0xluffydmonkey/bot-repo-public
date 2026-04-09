@@ -17,6 +17,70 @@ import * as KB from './ui/keyboards.js';
 
 const HTML = { parse_mode: 'HTML', disable_web_page_preview: true };
 
+function parseManualOpenInput(text) {
+  const tokens = String(text ?? '')
+    .trim()
+    .replace(/\n+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (tokens.length < 6) {
+    throw new Error('Formato inválido. Use: ATIVO DIRECAO ENTRADA TP SL LEVERAGE [MARGEM]');
+  }
+
+  const [assetRaw, directionRaw, entryRaw, tpRaw, slRaw, leverageRaw, marginRaw = 'isolated'] = tokens;
+  const direction = directionRaw.toUpperCase();
+  const marginType = marginRaw.toLowerCase();
+  const toNumber = (value) => Number(String(value).replace(',', '.'));
+
+  const params = {
+    asset: assetRaw.toUpperCase(),
+    direction,
+    entry: toNumber(entryRaw),
+    tp: toNumber(tpRaw),
+    sl: toNumber(slRaw),
+    leverage: toNumber(leverageRaw),
+    marginType,
+  };
+
+  if (!['LONG', 'SHORT'].includes(direction)) {
+    throw new Error('Direção inválida. Use LONG ou SHORT.');
+  }
+  if (!['isolated', 'cross'].includes(marginType)) {
+    throw new Error('Margem inválida. Use isolated ou cross.');
+  }
+  if ([params.entry, params.tp, params.sl, params.leverage].some((value) => !Number.isFinite(value) || value <= 0)) {
+    throw new Error('Entrada, TP, SL e leverage devem ser números positivos.');
+  }
+
+  return params;
+}
+
+async function waitForTpSlUpdate(asset, tp, sl, startedAt, timeout = 35_000) {
+  const interval = 1_000;
+  let elapsed = 0;
+
+  while (elapsed < timeout) {
+    await new Promise((resolve) => setTimeout(resolve, interval));
+    elapsed += interval;
+
+    const error = state.errors.find((entry) => {
+      const ts = new Date(entry.timestamp ?? 0).getTime();
+      return typeof entry.context === 'string' && entry.context.startsWith('cmd:update_tpsl') && entry.context.includes(asset) && ts >= startedAt;
+    });
+    if (error) return { status: 'error', message: error.message };
+
+    const pos = state.positions.find((entry) => entry.asset === asset);
+    if (!pos) continue;
+
+    const tpOk = tp == null || Number(pos.tp) === Number(tp);
+    const slOk = sl == null || Number(pos.sl) === Number(sl);
+    if (tpOk && slOk) return { status: 'updated', position: pos };
+  }
+
+  return { status: 'timeout' };
+}
+
 // ── Audit log ─────────────────────────────────────────────────────────────────
 
 function audit(userId, username, action) {
@@ -54,6 +118,10 @@ export function startControlBot(token, allowedIds = []) {
       bot.sendMessage(chatId, '⛔ Acesso não autorizado.').catch(() => {});
       return;
     }
+    if (userId != null) {
+      sessions.clearWaiting(String(userId));
+      sessions.set(String(userId), { manualOpenDraft: null });
+    }
     audit(userId, msg.from?.username, msg.text ?? '(callback)');
     Promise.resolve(fn(chatId, msg)).catch(err => {
       logger.error(`[CTRL] Erro no handler: ${err.message}`);
@@ -79,8 +147,44 @@ export function startControlBot(token, allowedIds = []) {
     if (!sessions.isWaiting(userId)) return;
 
     const waiting = sessions.getWaiting(userId);
-    const { type, asset } = waiting;
+    if (waiting.kind === 'manual_open') {
+      try {
+        const params = parseManualOpenInput(msg.text);
+        sessions.clearWaiting(userId);
+        sessions.set(userId, { manualOpenDraft: params });
 
+        const text = S.renderConfirmManualOpen(params);
+        const keyboard = KB.manualOpenConfirmKeyboard();
+        const session = sessions.get(userId);
+
+        if (session.messageId && session.chatId) {
+          try {
+            await bot.editMessageText(text, {
+              chat_id: session.chatId,
+              message_id: session.messageId,
+              parse_mode: 'HTML',
+              reply_markup: keyboard,
+              disable_web_page_preview: true,
+            });
+          } catch {
+            const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
+            sessions.set(userId, { messageId: sent.message_id, chatId });
+          }
+        } else {
+          const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
+          sessions.set(userId, { messageId: sent.message_id, chatId });
+        }
+      } catch (err) {
+        await bot.sendMessage(chatId,
+          `❌ ${err.message}\n\nUse o formato:\n<code>ATIVO DIRECAO ENTRADA TP SL LEVERAGE [MARGEM]</code>`,
+          HTML
+        ).catch(() => {});
+      }
+      return;
+    }
+
+    const type = waiting.type;
+    const asset = waiting.asset;
     const price = parseFloat(msg.text.trim().replace(',', '.'));
     if (isNaN(price) || price <= 0) {
       await bot.sendMessage(chatId,
@@ -92,39 +196,44 @@ export function startControlBot(token, allowedIds = []) {
 
     sessions.clearWaiting(userId);
 
-    // Contrato canônico do command-bus:
-    //   cmd:update_tpsl { asset, tp, sl }
-    // Mantém compatibilidade com o backend atual sem criar payloads paralelos.
     const payload = {
       asset,
       tp: type === 'tp' ? price : null,
       sl: type === 'sl' ? price : null,
     };
+    const startedAt = Date.now();
     state.emit('cmd:update_tpsl', payload);
     logger.info(`[CTRL] cmd:update_tpsl emitido: ${asset} ${type.toUpperCase()} → ${price}`);
 
-    // Feedback imediato ao usuário
     const label   = type === 'tp' ? 'Take Profit' : 'Stop Loss';
     const emoji   = type === 'tp' ? '🎯' : '🛑';
     const session = sessions.get(userId);
 
-    const text = `${emoji} <b>${label} atualizado</b>\n\n<b>${asset}</b>: <code>${price}</code>\n\n<i>Aguarde confirmação da blockchain.</i>`;
-
-    // Tenta editar a mensagem anterior; se falhar, envia nova
-    if (session.messageId && session.chatId) {
-      try {
-        await bot.editMessageText(text, {
-          chat_id:                  session.chatId,
-          message_id:               session.messageId,
-          parse_mode:               'HTML',
-          reply_markup:             KB.backToMenuKeyboard(),
-          disable_web_page_preview: true,
-        });
-      } catch {
-        await bot.sendMessage(chatId, text, { ...HTML, reply_markup: KB.backToMenuKeyboard() }).catch(() => {});
+    const updateText = async (text, keyboard = KB.backToMenuKeyboard()) => {
+      if (session.messageId && session.chatId) {
+        try {
+          await bot.editMessageText(text, {
+            chat_id: session.chatId,
+            message_id: session.messageId,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+            disable_web_page_preview: true,
+          });
+          return;
+        } catch {}
       }
+      await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard }).catch(() => {});
+    };
+
+    await updateText(`${emoji} <b>Atualizando ${label}</b>\n\n<b>${asset}</b>: <code>${price}</code>\n\n<i>Aguardando confirmação...</i>`, { inline_keyboard: [] });
+
+    const outcome = await waitForTpSlUpdate(asset, payload.tp, payload.sl, startedAt, 35_000);
+    if (outcome.status === 'updated') {
+      await updateText(`${emoji} <b>${label} atualizado</b>\n\n<b>${asset}</b>: <code>${price}</code>`);
+    } else if (outcome.status === 'error') {
+      await updateText(`⛔ <b>Falha ao atualizar ${label}</b>\n\n${outcome.message}`);
     } else {
-      await bot.sendMessage(chatId, text, { ...HTML, reply_markup: KB.backToMenuKeyboard() }).catch(() => {});
+      await updateText(`⚠️ <b>Comando enviado.</b>\n\nUse /positions para confirmar o novo ${label}.`);
     }
   });
 

@@ -14,9 +14,9 @@ export const jupiterVenueManifest = {
     supportsMonitoring: false,
     supportsUpdateTpSl: false,
     supportsAccountSnapshot: false,
-    supportsMarketLimits: false,
     supportsBalance: false,
     supportsSupportedAssets: true,
     supportsPlatformMaxLeverage: true,
+    supportsMarketLimits: true,
   },
 };

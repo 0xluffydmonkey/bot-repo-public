@@ -18,6 +18,18 @@ import logger from '../../utils/logger.js';
 import { JUPITER_PERPS } from '../../config/index.js';
 import { resolveWalletForVenue } from '../../wallets/walletResolver.js';
 
+// Conservative static minimums for Jupiter Perps.
+// Based on observed on-chain sizing behaviour (2026-04).
+// TODO: replace with live API query once the Jupiter Perps REST API stabilises.
+const JUPITER_MARKET_LIMITS = {
+  SOL:  { minBase: 0.1,    stepBase: 0.01   },
+  BTC:  { minBase: 0.0001, stepBase: 0.0001 },
+  ETH:  { minBase: 0.001,  stepBase: 0.001  },
+  WIF:  { minBase: 1,      stepBase: 1      },
+  BONK: { minBase: 1000,   stepBase: 100    },
+  JUP:  { minBase: 1,      stepBase: 1      },
+};
+
 // Non-sensitive base URL — can be set in .env
 // Sensitive: any API key MUST come from secrets file
 function getBaseUrl() {
@@ -204,14 +216,16 @@ export const jupiterPerpAdapter = {
 
   /**
    * Returns order size limits for the given asset on Jupiter Perps.
-   * TODO: Fetch real minBase/stepBase from Jupiter Perps API or on-chain data.
+   * Values are static minimums — see JUPITER_MARKET_LIMITS above.
    * @param {string} asset
    * @returns {{ minBase: number, stepBase: number }}
    */
   getMarketLimits(asset) {
-    throw new Error(
-      '[JUPITER] getMarketLimits não implementado — Jupiter Perps REST API está em desenvolvimento.'
-    );
+    const limits = JUPITER_MARKET_LIMITS[asset?.toUpperCase()];
+    if (!limits) {
+      throw new Error(`[JUPITER] Ativo não suportado em getMarketLimits: ${asset}`);
+    }
+    return limits;
   },
 
   /**

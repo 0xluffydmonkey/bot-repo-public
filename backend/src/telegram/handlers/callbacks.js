@@ -56,6 +56,40 @@ async function waitForClose(asset, timeout = 15_000) {
   return false;
 }
 
+async function waitForCloseAll(timeout = 20_000) {
+  const interval = 1_000;
+  let elapsed = 0;
+  while (elapsed < timeout) {
+    await new Promise(r => setTimeout(r, interval));
+    elapsed += interval;
+    if (state.positions.length === 0) return true;
+  }
+  return false;
+}
+
+function isRecentError(entry, contextPrefix, since) {
+  if (!entry?.context || typeof entry.context !== 'string') return false;
+  const ts = new Date(entry.timestamp ?? 0).getTime();
+  return entry.context.startsWith(contextPrefix) && ts >= since;
+}
+
+async function waitForManualOpen(asset, direction, since, timeout = 20_000) {
+  const interval = 1_000;
+  let elapsed = 0;
+  while (elapsed < timeout) {
+    await new Promise(r => setTimeout(r, interval));
+    elapsed += interval;
+
+    const error = state.errors.find((entry) => isRecentError(entry, 'cmd:open_manual', since));
+    if (error) return { status: 'error', message: error.message };
+
+    const pos = state.positions.find((entry) => entry.asset === asset && entry.direction === direction);
+    if (pos) return { status: 'opened', position: pos };
+  }
+
+  return { status: 'timeout' };
+}
+
 // ── Registro do handler ───────────────────────────────────────────────────────
 
 export function registerCallbackHandler(bot, isAllowed, audit) {
@@ -99,6 +133,7 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
 
   // ─── Menu principal ─────────────────────────────────────────────────────────
   if (data === 'menu') {
+    sessions.set(userId, { manualOpenDraft: null, waitingFor: null });
     return show(S.renderMenu(snap), KB.mainMenuKeyboard(snap.status));
   }
 
@@ -126,6 +161,11 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
     return show(S.renderConfig(snap), KB.configKeyboard(snap.status));
   }
 
+  if (data === 'menu:manual_open') {
+    sessions.setWaiting(userId, { kind: 'manual_open' });
+    return show(S.renderAskManualOpen(), KB.manualOpenInputKeyboard());
+  }
+
   // ─── PnL: refresh ───────────────────────────────────────────────────────────
   if (data === 'pnl:refresh') {
     const fresh = state.getSnapshot();
@@ -150,6 +190,9 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
       await alert(bot, queryId, `📭 Posição ${asset} não encontrada`);
       return;
     }
+
+    sessions.clearWaiting(userId);
+    sessions.set(userId, { manualOpenDraft: null });
 
     const fresh = state.getSnapshot();
     return show(
@@ -209,9 +252,23 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
   if (data === 'ctrl:close_all_ok') {
     const count = state.positions.length;
     await ack(bot, queryId, `🔄 Fechando ${count} posição(ões)…`);
+    await editScreen(bot, chatId, messageId,
+      `🔄 <b>Fechando ${count} posição(ões)…</b>\n\nAguarde a confirmação das execuções.`,
+      { inline_keyboard: [] }
+    );
+
     state.emit('cmd:close_all', { venue: state.positions[0]?.venue });
+
+    const closedAll = await waitForCloseAll(25_000);
+    if (closedAll) {
+      return editScreen(bot, chatId, messageId,
+        `✅ <b>Todas as posições foram fechadas.</b>`,
+        KB.backToMenuKeyboard()
+      );
+    }
+
     return editScreen(bot, chatId, messageId,
-      `🔄 <b>Fechando ${count} posição(ões)…</b>\n\nVerifique /positions em instantes.`,
+      `⚠️ <b>Comando enviado.</b>\nUse /positions para confirmar o resultado final.`,
       KB.backToMenuKeyboard()
     );
   }
@@ -250,8 +307,54 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
 
     if (!pos) { await alert(bot, queryId, `📭 Sem posição em ${asset}`); return; }
 
-    sessions.setWaiting(userId, { type, asset });
+    sessions.setWaiting(userId, { kind: 'tpsl', type, asset });
     return show(S.renderAskTpSl(pos, type), KB.inputCancelKeyboard(asset));
+  }
+
+  if (data === 'manual:open_confirm') {
+    const draft = sessions.get(userId).manualOpenDraft;
+    if (!draft) {
+      await alert(bot, queryId, '⚠️ Nenhuma ordem manual pendente para confirmar');
+      return;
+    }
+
+    if (state.positions.find((pos) => pos.asset === draft.asset)) {
+      sessions.set(userId, { manualOpenDraft: null });
+      return show(
+        `⚠️ <b>Já existe posição aberta em ${draft.asset}.</b>\n\nFeche a posição atual antes de abrir uma nova ordem manual neste ativo.`,
+        KB.backToPositionsKeyboard()
+      );
+    }
+
+    const startedAt = Date.now();
+    await ack(bot, queryId, `🚀 Enviando ${draft.asset}…`);
+    await editScreen(bot, chatId, messageId,
+      `🚀 <b>Enviando ordem manual</b>\n\n<b>${draft.asset}</b> ${draft.direction}  ⚡ ${draft.leverage}x\n\nAguardando validação e execução...`,
+      { inline_keyboard: [] }
+    );
+
+    state.emit('cmd:open_manual', draft);
+    sessions.set(userId, { manualOpenDraft: null, waitingFor: null });
+
+    const outcome = await waitForManualOpen(draft.asset, draft.direction, startedAt, 25_000);
+    if (outcome.status === 'opened') {
+      return editScreen(bot, chatId, messageId,
+        `✅ <b>Ordem manual executada</b>\n\n<b>${draft.asset}</b> ${draft.direction} foi aberta com sucesso.\nUse /positions para acompanhar a posição.`,
+        KB.backToPositionsKeyboard()
+      );
+    }
+
+    if (outcome.status === 'error') {
+      return editScreen(bot, chatId, messageId,
+        `⛔ <b>Ordem manual rejeitada</b>\n\n${outcome.message}`,
+        KB.backToMenuKeyboard()
+      );
+    }
+
+    return editScreen(bot, chatId, messageId,
+      `⚠️ <b>Comando enviado.</b>\n\nAinda não foi possível confirmar a abertura. Use /positions para verificar o resultado.`,
+      KB.backToPositionsKeyboard()
+    );
   }
 
   // ─── Fallback ──────────────────────────────────────────────────────────────

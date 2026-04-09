@@ -26,6 +26,9 @@ export function mainMenuKeyboard(status) {
         { text: '📩 Sinais',    callback_data: 'menu:signals'   },
         { text: '⚙️ Config',   callback_data: 'menu:config'    },
       ],
+      [
+        { text: '📝 Trade Manual', callback_data: 'menu:manual_open' },
+      ],
       [pauseBtn, atBtn],
       [
         { text: '⚠️ Fechar Tudo', callback_data: 'ctrl:close_all' },
@@ -152,5 +155,20 @@ export function backToPositionsKeyboard() {
 export function inputCancelKeyboard(asset) {
   return {
     inline_keyboard: [[{ text: '❌ Cancelar', callback_data: `pos:view:${asset}` }]],
+  };
+}
+
+export function manualOpenInputKeyboard() {
+  return {
+    inline_keyboard: [[{ text: '❌ Cancelar', callback_data: 'menu' }]],
+  };
+}
+
+export function manualOpenConfirmKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Confirmar Ordem', callback_data: 'manual:open_confirm' },
+      { text: '❌ Cancelar',        callback_data: 'menu' },
+    ]],
   };
 }

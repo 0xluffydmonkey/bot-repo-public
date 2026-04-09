@@ -23,6 +23,26 @@
 import logger from '../../utils/logger.js';
 import { resolveWalletForVenue } from '../../wallets/walletResolver.js';
 
+// Conservative static minimums for Phoenix Perps (private beta — 2026-04).
+// Phoenix is a CLOB-based perp DEX on Solana; exact on-chain limits are not yet
+// publicly documented. Values below mirror Drift's conservative settings for the
+// same assets and will be replaced once the Phoenix API exits private beta.
+// These constants exist only to satisfy paper mode and risk manager validation —
+// live execution for Phoenix remains unimplemented.
+const PHOENIX_SUPPORTED_ASSETS = ['SOL', 'BTC', 'ETH'];
+
+const PHOENIX_MAX_LEVERAGE_BY_ASSET = {
+  SOL: 20,
+  BTC: 20,
+  ETH: 20,
+};
+
+const PHOENIX_MARKET_LIMITS = {
+  SOL: { minBase: 0.1,    stepBase: 0.01   },
+  BTC: { minBase: 0.0001, stepBase: 0.0001 },
+  ETH: { minBase: 0.001,  stepBase: 0.001  },
+};
+
 function getBaseUrl() {
   return (process.env.PHOENIX_API_BASE_URL ?? 'https://api.phoenix.trade').replace(/\/$/, '');
 }
@@ -175,36 +195,35 @@ export const phoenixPerpAdapter = {
 
   /**
    * Returns all asset symbols supported by Phoenix Perps.
-   * TODO: Replace with live API query when API is publicly available.
+   * Static list — see PHOENIX_SUPPORTED_ASSETS above.
    * @returns {string[]}
    */
   getSupportedAssets() {
-    throw new Error(
-      '[PHOENIX] getSupportedAssets não implementado — Phoenix Perps está em beta privado.'
-    );
+    return PHOENIX_SUPPORTED_ASSETS;
   },
 
   /**
    * Returns order size limits for the given asset on Phoenix Perps.
-   * TODO: Fetch real minBase/stepBase from Phoenix Perps API or on-chain data.
+   * Static minimums — see PHOENIX_MARKET_LIMITS above.
    * @param {string} asset
    * @returns {{ minBase: number, stepBase: number }}
    */
   getMarketLimits(asset) {
-    throw new Error(
-      '[PHOENIX] getMarketLimits não implementado — Phoenix Perps está em beta privado.'
-    );
+    const limits = PHOENIX_MARKET_LIMITS[asset?.toUpperCase()];
+    if (!limits) {
+      throw new Error(`[PHOENIX] Ativo não suportado em getMarketLimits: ${asset}`);
+    }
+    return limits;
   },
 
   /**
    * Returns the platform maximum leverage for the given asset on Phoenix Perps.
+   * Static values — see PHOENIX_MAX_LEVERAGE_BY_ASSET above.
    * @param {string} asset
    * @returns {number}
    */
   getPlatformMaxLeverage(asset) {
-    throw new Error(
-      '[PHOENIX] getPlatformMaxLeverage não implementado — Phoenix Perps está em beta privado.'
-    );
+    return PHOENIX_MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()] ?? 10;
   },
 
   async getBalance() {
