@@ -129,6 +129,57 @@ export const JUPITER_PERPS = {
   },
 };
 
+// ─── Valiant — Temporary live execution venue (Hyperliquid-compatible) ────────
+//
+// ASSET_INDEX: integer market indices used in Valiant/Hyperliquid API orders.
+// These must match the actual market indices on your Valiant deployment.
+// To verify: POST /info { "type": "meta" } → universe[i].name maps i → symbol.
+//
+// MARKET_LIMITS: conservative static minimums for Phase 1.
+// Replace with a live /info query if precision matters.
+//
+// MAX_LEVERAGE_BY_ASSET: caps applied before forwarding leverage to the API.
+export const VALIANT_MARKETS = {
+  ASSET_INDEX: {
+    BTC:  0,
+    ETH:  1,
+    SOL:  5,
+    AVAX: 6,
+    BNB:  7,
+    APT:  8,
+    ARB:  9,
+    DOGE: 10,
+    SUI:  17,
+    WIF:  21,
+  },
+
+  MARKET_LIMITS: {
+    BTC:  { minBase: 0.0001, stepBase: 0.0001 },
+    ETH:  { minBase: 0.001,  stepBase: 0.001  },
+    SOL:  { minBase: 0.1,    stepBase: 0.01   },
+    AVAX: { minBase: 0.1,    stepBase: 0.01   },
+    BNB:  { minBase: 0.01,   stepBase: 0.01   },
+    APT:  { minBase: 0.1,    stepBase: 0.01   },
+    ARB:  { minBase: 1,      stepBase: 0.1    },
+    DOGE: { minBase: 10,     stepBase: 1      },
+    SUI:  { minBase: 1,      stepBase: 0.1    },
+    WIF:  { minBase: 1,      stepBase: 0.1    },
+  },
+
+  MAX_LEVERAGE_BY_ASSET: {
+    BTC:  50,
+    ETH:  50,
+    SOL:  20,
+    AVAX: 20,
+    BNB:  20,
+    APT:  20,
+    ARB:  20,
+    DOGE: 20,
+    SUI:  20,
+    WIF:  20,
+  },
+};
+
 export function validateConfig() {
   if (config.trading.positionSizePct <= 0 || config.trading.positionSizePct > 1) {
     throw new Error('[CONFIG] POSITION_SIZE_PCT deve estar entre 0.01 e 1.0');

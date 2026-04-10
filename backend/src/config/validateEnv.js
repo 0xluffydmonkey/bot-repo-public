@@ -56,9 +56,15 @@ function checkSecret(key, errors) {
   console.log(`[CONFIG] Secret loaded: ${key} ✓`);
 }
 
+// Non-Solana venues that do not require Solana-specific config.
+// Extend this list when new EVM/non-Solana venues are added.
+const NON_SOLANA_VENUES = new Set(['valiant']);
+
 export function validateEnv() {
   const isPaper    = process.env.PAPER_TRADING === 'true';
   const controlBot = process.env.ENABLE_CONTROL_BOT === 'true';
+  const venue      = (process.env.PERP_OPEN_VENUE ?? 'drift').toLowerCase().trim();
+  const isSolana   = !NON_SOLANA_VENUES.has(venue);
   const errors = [];
 
   // ── Reject deprecated raw-secret patterns ────────────────────────────────
@@ -83,7 +89,11 @@ export function validateEnv() {
 
   // ── Required secrets — must be real values, not placeholders ─────────────
 
-  checkSecret('SOLANA_RPC_URL',   errors);
+  // SOLANA_RPC_URL is only required for Solana-based venues
+  if (isSolana) {
+    checkSecret('SOLANA_RPC_URL', errors);
+  }
+
   checkSecret('TELEGRAM_API_ID',  errors);
   checkSecret('TELEGRAM_API_HASH', errors);
   checkSecret('TELEGRAM_PHONE',   errors);
@@ -94,13 +104,20 @@ export function validateEnv() {
     checkSecret('TELEGRAM_CONTROL_ALLOWED_IDS', errors);
   }
 
-  // ── Require wallet path in live mode ──────────────────────────────────────
+  // ── Solana venue live mode: require wallet path ───────────────────────────
 
-  if (!isPaper && !process.env.BOT_WALLET_PATH) {
+  if (!isPaper && isSolana && !process.env.BOT_WALLET_PATH) {
     errors.push(
       'BOT_WALLET_PATH é obrigatório em modo LIVE (PAPER_TRADING=false).\n' +
       '  → Configure: BOT_WALLET_PATH=/opt/bot/secrets/drift-bot-wallet.json'
     );
+  }
+
+  // ── Valiant venue live mode: require agent key + account address ──────────
+
+  if (!isPaper && venue === 'valiant') {
+    checkSecret('VALIANT_AGENT_KEY',       errors);
+    checkSecret('VALIANT_ACCOUNT_ADDRESS', errors);
   }
 
   // ── Fail fast ─────────────────────────────────────────────────────────────
