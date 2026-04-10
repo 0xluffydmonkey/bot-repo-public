@@ -3,9 +3,9 @@
 // No separate auth or connection needed: /info endpoint is public.
 
 import {
-  fetchAccountSnapshot,
-  fetchOpenPositions,
-} from '../../trading/clients/valiantClient.js';
+  getAccountSnapshot  as fetchAccountSnapshot,
+  getPositions        as fetchOpenPositions,
+} from '../../trading/clients/hyperliquidClient.js';
 
 export const valiantMonitoringAdapter = {
   venue: 'valiant',

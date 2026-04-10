@@ -1,21 +1,31 @@
 // src/trading/adapters/valiantAdapter.js
-// Valiant execution adapter — thin routing layer over valiantClient.
 //
-// All Valiant-specific HTTP and auth logic lives in valiantClient.js.
-// This file only maps the internal tradeParams schema → client calls.
+// Valiant execution adapter.
 //
-// Phase 1 capabilities: openTrade, closeTrade, getBalance, getAccountSnapshot
-// Phase 2 (deferred):   closeAllTrades, reduceTrade, updateTpSl
+// Architecture:
+//   Valiant = adapter layer only  — maps internal tradeParams ↔ Hyperliquid call args
+//   Hyperliquid = execution layer — all signing, HTTP, and close logic lives in hyperliquidClient.js
+//
+// This file must NOT contain:
+//   - HTTP calls
+//   - EIP-712 signing
+//   - position lookup logic
+//   - API error handling
+//
+// Implemented: openTrade, closeTrade, reduceTrade, getPositions, getBalance, getAccountSnapshot
+// Deferred:    closeAllTrades, updateTpSl
 
 import logger from '../../utils/logger.js';
 import { VALIANT_MARKETS } from '../../config/index.js';
 import {
   placeOrder,
+  closePosition,
+  reducePosition,
   updateLeverage,
-  fetchOpenPositions,
+  getPositions,
   getBalance,
-  fetchAccountSnapshot,
-} from '../clients/valiantClient.js';
+  getAccountSnapshot,
+} from '../clients/hyperliquidClient.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -24,14 +34,13 @@ function _resolveAssetIndex(asset) {
   if (index === undefined) {
     throw new Error(
       `[VALIANT] Ativo nao suportado: "${asset}". ` +
-      `Suportados: ${Object.keys(VALIANT_MARKETS.ASSET_INDEX).join(', ')}. ` +
-      'Verifique VALIANT_MARKETS.ASSET_INDEX em config/index.js.'
+      `Suportados: ${Object.keys(VALIANT_MARKETS.ASSET_INDEX).join(', ')}`
     );
   }
   return index;
 }
 
-// 2% slippage added to the limit price so IOC orders fill immediately at market.
+// 2% slippage so IOC orders fill immediately at market price.
 const MARKET_SLIPPAGE_PCT = 0.02;
 
 function _buildMarketPrice(entryPrice, direction) {
@@ -41,8 +50,6 @@ function _buildMarketPrice(entryPrice, direction) {
   return adjusted.toFixed(6);
 }
 
-// Extracts the order ID from the Valiant/Hyperliquid response structure.
-// Returns 'unknown' if the response shape is unexpected — never throws.
 function _extractOrderId(result) {
   const status = result?.response?.data?.statuses?.[0];
   return String(status?.resting?.oid ?? status?.filled?.oid ?? 'unknown');
@@ -54,32 +61,22 @@ export const valiantAdapter = {
   venue: 'valiant',
 
   /**
-   * Open a perpetual position on Valiant.
+   * Open a perpetual position via Hyperliquid.
+   * 1. Set leverage on the asset
+   * 2. Place a market-equivalent IOC order
    *
-   * Flow:
-   *   1. Set leverage (required before order)
-   *   2. Place market-equivalent IOC order
-   *
-   * @param {object} tradeParams - output of risk_manager.calculateTradeParams
+   * @param {object} tradeParams - from risk_manager.calculateTradeParams
    */
   async openTrade(tradeParams) {
-    const {
-      signalId,
-      asset,
-      direction,
-      entry,
-      leverage,
-      positionSizeUSD,
-      notionalValueUSD,
-    } = tradeParams;
+    const { signalId, asset, direction, entry, leverage, positionSizeUSD, notionalValueUSD } = tradeParams;
 
     const assetIndex = _resolveAssetIndex(asset);
     const isBuy      = direction === 'LONG';
     const sizeInBase = (notionalValueUSD / entry).toFixed(6);
     const limitPx    = _buildMarketPrice(entry, direction);
 
-    // ── PRE-ORDER LOG — emitted before the real order reaches the API ─────────
-    logger.info('[VALIANT] PRE-ORDER ─────────────────────────────────────────', {
+    // ── PRE-ORDER log — emitted before any HTTP call ──────────────────────────
+    logger.info('[VALIANT] PRE-ORDER', {
       venue:      'valiant',
       asset,
       side:       direction,
@@ -93,37 +90,22 @@ export const valiantAdapter = {
     });
     // ─────────────────────────────────────────────────────────────────────────
 
-    // 1. Set leverage
-    logger.info(`[VALIANT] Ajustando leverage: ${asset} → ${leverage}x (cross)`);
-    const leverageResult = await updateLeverage(assetIndex, leverage, /* isCross */ true);
-    logger.info('[VALIANT] Leverage definida:', leverageResult);
+    logger.info(`[VALIANT] Ajustando leverage: ${asset} → ${leverage}x`);
+    const levResult = await updateLeverage(assetIndex, leverage, true);
+    logger.info('[VALIANT] Leverage definida:', levResult);
 
-    // 2. Place IOC order
-    logger.info(`[VALIANT] Enviando ordem: ${direction} ${sizeInBase} ${asset} @ limite $${limitPx}`);
-    const orderResult = await placeOrder({
-      assetIndex,
-      isBuy,
-      size:       sizeInBase,
-      limitPrice: limitPx,
-      reduceOnly: false,
-    });
+    logger.info(`[VALIANT] Enviando ordem: ${direction} ${sizeInBase} ${asset} @ $${limitPx}`);
+    const orderResult = await placeOrder({ assetIndex, isBuy, size: sizeInBase, limitPrice: limitPx, reduceOnly: false });
 
-    // ── POST-ORDER LOG — raw response + parsed result ─────────────────────────
-    logger.info('[VALIANT] RESPOSTA BRUTA /exchange:', orderResult);
+    // ── POST-ORDER log — raw response + parsed orderId ────────────────────────
+    logger.info('[VALIANT] Resposta bruta /exchange:', orderResult);
     const orderId = _extractOrderId(orderResult);
-    logger.info('[VALIANT] Ordem executada:', {
-      orderId,
-      asset,
-      side:    direction,
-      size:    sizeInBase,
-      limitPx,
-      signalId,
-    });
+    logger.info('[VALIANT] Ordem executada:', { orderId, asset, side: direction, size: sizeInBase, signalId });
     // ─────────────────────────────────────────────────────────────────────────
 
     return {
-      success:      true,
-      venue:        'valiant',
+      success:       true,
+      venue:         'valiant',
       signalId,
       asset,
       direction,
@@ -131,61 +113,61 @@ export const valiantAdapter = {
       leverage,
       collateralUSD: positionSizeUSD,
       notionalUSD:   notionalValueUSD,
-      signatures:   { marketOrder: orderId },
-      executedAt:   new Date().toISOString(),
+      signatures:    { marketOrder: orderId },
+      executedAt:    new Date().toISOString(),
     };
   },
 
   /**
-   * Close an open position on Valiant via a reduce-only IOC order.
-   * Fetches current position size/direction from the API first.
+   * Close an open position via Hyperliquid (reduce-only IOC).
+   * Position lookup and order placement are delegated to hyperliquidClient.closePosition().
    *
    * @param {string} asset - e.g. 'SOL', 'BTC'
-   * @returns {Promise<string>} order ID
    */
   async closeTrade(asset) {
     const assetIndex = _resolveAssetIndex(asset);
 
-    const positions = await fetchOpenPositions();
-    const pos = positions.find(
-      (p) => p.position?.coin?.toUpperCase() === asset.toUpperCase()
-    );
-
-    if (!pos) {
-      throw new Error(`[VALIANT] Sem posicao aberta em ${asset} para fechar`);
-    }
-
-    const szi     = parseFloat(pos.position.szi);
-    const isLong  = szi > 0;
-    const absSize = Math.abs(szi).toFixed(6);
-    const isBuy   = !isLong;
-    const closePx = isLong ? '1' : '999999999';
-
-    // ── PRE-CLOSE LOG ─────────────────────────────────────────────────────────
-    logger.info('[VALIANT] PRE-CLOSE ─────────────────────────────────────────', {
-      asset,
-      side:    isLong ? 'LONG' : 'SHORT',
-      size:    absSize,
-      closePx,
-      assetIndex,
-    });
+    // ── PRE-CLOSE log ─────────────────────────────────────────────────────────
+    logger.info('[VALIANT] PRE-CLOSE', { asset, assetIndex });
     // ─────────────────────────────────────────────────────────────────────────
 
-    const closeResult = await placeOrder({
-      assetIndex,
-      isBuy,
-      size:       absSize,
-      limitPrice: closePx,
-      reduceOnly: true,
-    });
+    const { orderId, raw } = await closePosition(assetIndex, asset);
 
-    // ── POST-CLOSE LOG ────────────────────────────────────────────────────────
-    logger.info('[VALIANT] RESPOSTA BRUTA /exchange (close):', closeResult);
-    const orderId = _extractOrderId(closeResult);
+    // ── POST-CLOSE log ────────────────────────────────────────────────────────
+    logger.info('[VALIANT] Resposta bruta /exchange (close):', raw);
     logger.info('[VALIANT] Posicao fechada:', { asset, orderId });
     // ─────────────────────────────────────────────────────────────────────────
 
     return orderId;
+  },
+
+  /**
+   * Reduce an open position by a specific base-asset size (reduce-only IOC).
+   * Fails if no open position exists or size exceeds open position.
+   *
+   * @param {string} asset     - e.g. 'SOL', 'BTC'
+   * @param {number} sizeBase  - base-asset units to reduce
+   */
+  async reduceTrade(asset, sizeBase) {
+    const assetIndex = _resolveAssetIndex(asset);
+
+    logger.info('[VALIANT] PRE-REDUCE', { venue: 'valiant', asset, assetIndex, reduceSize: sizeBase });
+
+    const { orderId, raw } = await reducePosition(assetIndex, asset, sizeBase);
+
+    logger.info('[VALIANT] Resposta bruta /exchange (reduce):', raw);
+    logger.info('[VALIANT] Posicao reduzida:', { venue: 'valiant', asset, orderId, reduceSize: sizeBase });
+
+    return orderId;
+  },
+
+  /**
+   * Returns all non-zero open positions in the venue-agnostic shape.
+   * Delegates directly to hyperliquidClient — no adapter transformation.
+   * @returns {Promise<Array>}
+   */
+  async getPositions() {
+    return getPositions();
   },
 
   async getBalance() {
@@ -193,7 +175,7 @@ export const valiantAdapter = {
   },
 
   async getAccountSnapshot() {
-    return fetchAccountSnapshot();
+    return getAccountSnapshot();
   },
 
   getSupportedAssets() {
@@ -203,10 +185,7 @@ export const valiantAdapter = {
   getMarketLimits(asset) {
     const limits = VALIANT_MARKETS.MARKET_LIMITS[asset?.toUpperCase()];
     if (!limits) {
-      throw new Error(
-        `[VALIANT] Limites de mercado nao configurados para: "${asset}". ` +
-        'Adicione em VALIANT_MARKETS.MARKET_LIMITS em config/index.js.'
-      );
+      throw new Error(`[VALIANT] Limites nao configurados para: "${asset}"`);
     }
     return limits;
   },
