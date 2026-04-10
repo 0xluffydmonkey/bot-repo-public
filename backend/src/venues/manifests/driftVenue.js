@@ -11,6 +11,7 @@ export const driftVenueManifest = {
     supportsOpenTrade: true,
     supportsCloseTrade: true,
     supportsCloseAll: true,
+    supportsReduceTrade: true,
     supportsMonitoring: true,
     supportsUpdateTpSl: true,
     supportsAccountSnapshot: true,

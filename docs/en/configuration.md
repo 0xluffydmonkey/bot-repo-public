@@ -120,6 +120,36 @@ Each wallet file must have `chmod 600` and be owned by the bot user.
 
 ---
 
+## Dashboard security
+
+By default, the web dashboard only allows write operations from localhost. To enable remote access, set `WEB_API_TOKEN` in your secrets file:
+
+```env
+WEB_API_TOKEN=a-long-random-string-here
+```
+
+Then include it in every write request as a header:
+
+```
+X-API-Token: a-long-random-string-here
+```
+
+Read operations (`GET /api/state`, WebSocket state updates) are always open and do not require authentication.
+
+---
+
+## Paper mode balance
+
+In paper mode, the paper engine starts with a simulated balance. Override the default `$10,000`:
+
+```env
+PAPER_INITIAL_BALANCE=5000
+```
+
+This is an optional setting — only relevant when `PAPER_TRADING=true`.
+
+---
+
 ## Full reference
 
 See [backend/.env.example](../../backend/.env.example) for every available variable with comments.

@@ -83,6 +83,12 @@ function printBanner() {
 
 // ─── Handler de sinais ────────────────────────────────────────────────────────
 async function handleSignalMessage(text, meta = {}) {
+  // Intake gate — descarta silenciosamente antes de qualquer processamento
+  if (!state.status.signalIntakeEnabled) {
+    logger.debug(`[BOT] 🔕 Intake desativado — sinal descartado`);
+    return;
+  }
+
   const signal = parseSignal(text);
   if (!signal) return;
 
@@ -312,6 +318,35 @@ function registerCommandHandlers() {
       sl: normalizedType === 'sl' ? price : null,
     }, 'cmd:set_tpsl');
   });
+
+  // Signal intake on/off
+  state.on('cmd:intake', ({ enabled } = {}) => {
+    state.setSignalIntakeEnabled(Boolean(enabled));
+    logger.info(`[BOT] Signal intake ${enabled ? 'ativado' : 'desativado'} via cmd:intake`);
+  });
+
+  // Redução parcial de posição aberta
+  state.on('cmd:reduce', async ({ asset, reducePercent } = {}) => {
+    const context = 'cmd:reduce';
+    if (!asset || reducePercent == null) {
+      const err = new Error('Payload inválido para cmd:reduce; esperado { asset, reducePercent }');
+      logger.error(`[BOT] ❌ ${err.message}`);
+      state.addError(context, err);
+      return;
+    }
+    logger.info(`[BOT] 📉 Comando: redução parcial ${reducePercent}% ${asset}`);
+    try {
+      const { reduceManualTrade } = await import('./trading/ManualTradeService.js');
+      const result = await reduceManualTrade(asset, Number(reducePercent));
+      if (!result.success) {
+        logger.warn(`[BOT] ⛔ Redução parcial rejeitada: ${result.reason}`);
+        state.addError(`${context} ${asset}`, new Error(result.reason));
+      }
+    } catch (err) {
+      logger.error(`[BOT] ❌ Falha na redução parcial de ${asset}: ${err.message}`);
+      state.addError(`${context} ${asset}`, err);
+    }
+  });
 }
 
 // ─── Inicialização ────────────────────────────────────────────────────────────
@@ -350,6 +385,7 @@ async function main() {
     const notReadyFlags  = Object.entries(capabilities)
       .filter(([, v]) => !v)
       .map(([k]) => k.replace(/^supports/, '').replace(/([A-Z])/g, c => `_${c.toLowerCase()}`).slice(1));
+    state.setActiveVenue(activeVenue);
     logger.info(`[BOT] Venue ativa: ${activeVenue.toUpperCase()}`, {
       pronto:     readyFlags.length  > 0 ? readyFlags.join(', ')  : '(nenhuma)',
       naoSuporta: notReadyFlags.length > 0 ? notReadyFlags.join(', ') : '(nenhuma)',

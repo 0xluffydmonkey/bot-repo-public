@@ -5,11 +5,11 @@
 
 ---
 
-# TradeFinderBot — Drift Protocol Perps on Solana
+# TradeFinderBot — Multi-Venue Perps Bot on Solana
 
-Algorithmic trading bot that monitors a private Telegram channel for trade signals and executes them automatically on [Drift Protocol](https://drift.trade/) (on-chain perpetuals on Solana).
+Algorithmic trading bot that monitors a private Telegram channel for trade signals and executes them on perpetuals DEXes (default: Drift Protocol on Solana).
 
-Includes a real-time web dashboard, CLI monitor, Telegram control bot with InlineKeyboard interface, and automatic position tracking with PnL alerts.
+Includes a real-time web dashboard, Telegram control bot with InlineKeyboard interface, automatic position tracking with PnL alerts, manual trading and position management, and a multi-venue architecture supporting Drift, Jupiter Perps, and Phoenix Perps.
 
 ---
 
@@ -55,36 +55,45 @@ See [.env.example](.env.example) for a fully documented reference of every varia
 ## Architecture
 
 ```
-Canal Telegram (signals)
+Telegram channel (signals)
      │
      ▼  WebSocket MTProto (GramJS)
-┌──────────────────┐
-│ telegram_listener│  Monitors private channel in real time
-└────────┬─────────┘
+┌──────────────────────┐
+│  telegram_listener   │  Monitors private channel in real time
+└────────┬─────────────┘
          │ message text
          ▼
-┌──────────────────┐
-│  signal_parser   │  Regex → asset, direction, entry, TP, SL, leverage
-└────────┬─────────┘
-         │ signal object
+┌──────────────────────┐
+│  [1] intake gate     │  state.status.signalIntakeEnabled — silent discard if OFF
+│  [2] signal_parser   │  Regex → asset, direction, entry, TP, SL, leverage
+│  [3] signal_store    │  Deduplication by signal ID
+│  [4] pause gate      │  state.status.paused — logs as ignored if true
+│  [5] AT gate         │  state.status.autoTrading — logs as ignored if false
+└────────┬─────────────┘
+         │ validated signal object
          ▼
-┌──────────────────┐
-│  signal_store    │  Deduplication by signal ID
-└────────┬─────────┘
-         ▼
-┌──────────────────┐   Validates: supported asset, R:R, margin,
-│  risk_manager    │   leverage cap, open positions, exposure,
-└────────┬─────────┘   step size — live data from DriftUser
+┌──────────────────────┐   Validates: supported asset, R:R, margin,
+│    risk_manager      │   leverage cap, open positions, exposure,
+└────────┬─────────────┘   step size — live balance from PerpExecutionService
          │ adjusted tradeParams
          ▼
-┌──────────────────┐
-│  drift_executor  │  Drift SDK v2 → sign TX → Solana mainnet
-└──────────────────┘
+┌──────────────────────┐
+│ PerpExecutionService │  Routes to venue adapter — or paper engine if paper mode
+└────────┬─────────────┘
+         │
+    ┌────┴────┐
+    ▼         ▼
+┌────────┐  ┌─────────────┐
+│ paper  │  │ live adapter│  Drift SDK v2 / Jupiter / Phoenix
+│ engine │  │ (venue-based│  → signs TX → chain
+└────────┘  └─────────────┘
 
-┌────────────────────────────────────────────┐
-│         STATE STORE (EventEmitter)          │
-│  Shared by: bot, web, monitor, control bot  │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│            STATE STORE (EventEmitter)         │
+│  status: { paused, autoTrading,               │
+│    signalIntakeEnabled, activeVenue, mode }   │
+│  Shared by: bot, web, monitor, control bot    │
+└──────────────────────────────────────────────┘
 ```
 
 ---
@@ -93,16 +102,20 @@ Canal Telegram (signals)
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| Orchestrator | `src/index.js` | Wires all modules, handles CLI flags |
+| Orchestrator | `src/index.js` | Wires all modules, registers command handlers |
 | Config loader | `src/config/index.js` | Loads `.env` + secrets file, validates |
 | State store | `src/core/state.js` | Central EventEmitter shared by all modules |
 | Signal listener | `src/telegram/telegram_listener.js` | GramJS MTProto user client |
 | Signal parser | `src/parser/signal_parser.js` | Regex extraction of trade parameters |
 | Risk manager | `src/risk/risk_manager.js` | 7-layer pre-trade validation |
-| Executor | `src/executor/drift_executor.js` | Drift Protocol SDK v2 integration |
-| Web server | `src/web/server.js` | Express + Socket.IO dashboard |
+| Venue registry | `src/venues/VenueRegistry.js` | Central registry of venue manifests + capabilities |
+| Perp execution service | `src/trading/PerpExecutionService.js` | Routes execution to active venue or paper engine |
+| Paper engine | `src/trading/paperEngine.js` | In-memory paper trading simulation |
+| Drift adapter | `src/trading/adapters/driftAdapter.js` | Drift Protocol SDK v2 integration |
+| Manual trade service | `src/trading/ManualTradeService.js` | Manual open, close, reduce, TP/SL |
+| Position manager | `src/trading/position-management/PositionManager.js` | PnL alerts, trailing stop |
+| Web server | `src/web/server.js` | Express + Socket.IO dashboard + REST API |
 | Control bot | `src/telegram/telegram_control.js` | Telegram bot with InlineKeyboard |
-| CLI monitor | `src/monitor/index.js` | Standalone terminal dashboard |
 | Logger | `src/utils/logger.js` | Winston + daily rotation |
 
 ---

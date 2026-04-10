@@ -8,8 +8,6 @@ import sessions from '../sessions.js';
 import * as S   from '../ui/screens.js';
 import * as KB  from '../ui/keyboards.js';
 
-const HTML = { parse_mode: 'HTML', disable_web_page_preview: true };
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Edita mensagem existente em vez de enviar nova — sem spam. */
@@ -71,6 +69,20 @@ function isRecentError(entry, contextPrefix, since) {
   if (!entry?.context || typeof entry.context !== 'string') return false;
   const ts = new Date(entry.timestamp ?? 0).getTime();
   return entry.context.startsWith(contextPrefix) && ts >= since;
+}
+
+async function waitForReduce(asset, since, timeout = 20_000) {
+  const interval = 1_000;
+  let elapsed = 0;
+  while (elapsed < timeout) {
+    await new Promise(r => setTimeout(r, interval));
+    elapsed += interval;
+
+    const error = state.errors.find((entry) => isRecentError(entry, `cmd:reduce ${asset}`, since));
+    if (error) return { status: 'error', message: error.message };
+  }
+  // No error detected → assume success; position update visible on next poll
+  return { status: 'sent' };
 }
 
 async function waitForManualOpen(asset, direction, since, timeout = 20_000) {
@@ -225,7 +237,6 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
     state.emit('cmd:close', { asset, venue: pos.venue });
 
     const closed = await waitForClose(asset, 20_000);
-    const fresh  = state.getSnapshot();
 
     if (closed) {
       await editScreen(bot, chatId, messageId,
@@ -275,6 +286,10 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
 
   // ─── Pausar / Retomar ──────────────────────────────────────────────────────
   if (data === 'ctrl:pause') {
+    return show(S.renderConfirmPause(), KB.confirmPauseKeyboard());
+  }
+
+  if (data === 'ctrl:pause_ok') {
     state.setPaused(true);
     const fresh = state.getSnapshot();
     return show(S.renderMenu(fresh), KB.mainMenuKeyboard(fresh.status), '⏸️ Pausado');
@@ -294,9 +309,30 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
   }
 
   if (data === 'ctrl:at_off') {
+    return show(S.renderConfirmAtOff(), KB.confirmAtOffKeyboard());
+  }
+
+  if (data === 'ctrl:at_off_ok') {
     state.setAutoTrading(false);
     const fresh = state.getSnapshot();
     return show(S.renderMenu(fresh), KB.mainMenuKeyboard(fresh.status), '❌ Auto-trading OFF');
+  }
+
+  // ─── Signal intake ─────────────────────────────────────────────────────────
+  if (data === 'ctrl:intake_on') {
+    state.setSignalIntakeEnabled(true);
+    const fresh = state.getSnapshot();
+    return show(S.renderConfig(fresh), KB.configKeyboard(fresh.status), '🔔 Intake ON');
+  }
+
+  if (data === 'ctrl:intake_off') {
+    return show(S.renderConfirmIntakeOff(), KB.confirmIntakeOffKeyboard());
+  }
+
+  if (data === 'ctrl:intake_off_ok') {
+    state.setSignalIntakeEnabled(false);
+    const fresh = state.getSnapshot();
+    return show(S.renderConfig(fresh), KB.configKeyboard(fresh.status), '🔕 Intake OFF');
   }
 
   // ─── Modificar TP / SL: entrar em modo de input ────────────────────────────
@@ -309,6 +345,52 @@ async function dispatch(bot, { queryId, chatId, messageId, userId, data }) {
 
     sessions.setWaiting(userId, { kind: 'tpsl', type, asset });
     return show(S.renderAskTpSl(pos, type), KB.inputCancelKeyboard(asset));
+  }
+
+  // ─── Reduzir posição: entrar em modo de input ─────────────────────────────
+  if (data.startsWith('pos:reduce:') && !data.startsWith('pos:reduce_ok:')) {
+    const asset = data.slice('pos:reduce:'.length);
+    const pos   = state.positions.find(p => p.asset === asset);
+
+    if (!pos) { await alert(bot, queryId, `📭 Sem posição em ${asset}`); return; }
+
+    sessions.setWaiting(userId, { kind: 'reduce', asset });
+    return show(S.renderAskReduce(pos), KB.inputCancelKeyboard(asset));
+  }
+
+  // ─── Reduzir posição: confirmar e executar ─────────────────────────────────
+  if (data.startsWith('pos:reduce_ok:')) {
+    const parts   = data.slice('pos:reduce_ok:'.length).split(':');
+    const asset   = parts[0];
+    const percent = Number(parts[1]);
+
+    if (!asset || isNaN(percent)) {
+      await alert(bot, queryId, '⚠️ Parâmetros inválidos');
+      return;
+    }
+
+    await ack(bot, queryId, `📉 Reduzindo ${percent}% de ${asset}…`);
+    await editScreen(bot, chatId, messageId,
+      `📉 <b>Reduzindo posição</b>\n\n<b>${asset}</b>: ${percent}%\n\n<i>Aguardando execução...</i>`,
+      { inline_keyboard: [] }
+    );
+
+    const startedAt = Date.now();
+    state.emit('cmd:reduce', { asset, reducePercent: percent });
+
+    const outcome = await waitForReduce(asset, startedAt, 20_000);
+    if (outcome.status === 'error') {
+      await editScreen(bot, chatId, messageId,
+        `⛔ <b>Redução rejeitada</b>\n\n${outcome.message}`,
+        KB.backToPositionsKeyboard()
+      );
+    } else {
+      await editScreen(bot, chatId, messageId,
+        `✅ <b>Comando enviado</b>\n\n<b>${asset}</b>: redução de ${percent}% a mercado.\nUse /positions para confirmar o resultado.`,
+        KB.backToPositionsKeyboard()
+      );
+    }
+    return;
   }
 
   if (data === 'manual:open_confirm') {

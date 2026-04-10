@@ -52,15 +52,32 @@ export const perpService = {
   },
 
   /**
+   * Partially reduce an open position by closing a specified base amount.
+   * Use full closeTrade() for a complete exit.
+   * @param {string}      asset         - e.g. 'SOL', 'BTC'
+   * @param {number}      baseToReduce  - amount in base units to close (e.g. 1.5 for 1.5 SOL)
+   * @param {string|null} [venueOverride] - explicit venue; defaults to active venue
+   * @returns {Promise<{ asset, baseReduced, txSig }>}
+   */
+  async reduceTrade(asset, baseToReduce, venueOverride = null) {
+    if (config.trading.paperMode) return paperEngine.reduceTrade(asset, baseToReduce);
+    const venue = venueOverride ?? venueRegistry.getActiveVenue();
+    requireCapability(venue, 'supportsReduceTrade', 'reducao parcial de posicao');
+    const adapter = venueRegistry.getExecutionAdapter(venue);
+    return adapter.reduceTrade(asset, baseToReduce);
+  },
+
+  /**
    * Update TP and/or SL orders for an open position.
    * Cancels existing TP/SL orders for the market and places new ones.
-   * @param {string}      asset - e.g. 'SOL', 'BTC'
-   * @param {number|null} tp    - new take profit price (null = leave unchanged)
-   * @param {number|null} sl    - new stop loss price (null = leave unchanged)
+   * @param {string}      asset         - e.g. 'SOL', 'BTC'
+   * @param {number|null} tp            - new take profit price (null = leave unchanged)
+   * @param {number|null} sl            - new stop loss price (null = leave unchanged)
+   * @param {string|null} [venueOverride] - explicit venue; defaults to active venue
    */
-  async updateTpSl(asset, tp, sl) {
+  async updateTpSl(asset, tp, sl, venueOverride = null) {
     if (config.trading.paperMode) return paperEngine.updateTpSl(asset, tp, sl);
-    const venue = venueRegistry.getActiveVenue();
+    const venue = venueOverride ?? venueRegistry.getActiveVenue();
     requireCapability(venue, 'supportsUpdateTpSl', 'atualizacao de TP/SL');
     const adapter = venueRegistry.getExecutionAdapter(venue);
     return adapter.updateTpSl(asset, tp, sl);

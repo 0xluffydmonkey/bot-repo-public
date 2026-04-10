@@ -1,151 +1,184 @@
 # Dashboard do Bot de Trade
 
-Este painel foi feito para que qualquer pessoa consiga acompanhar o bot de trade de forma visual, sem precisar entender código.
+> **English version:** see [docs/en/operator-guide.md](../docs/en/operator-guide.md)
 
-Ele funciona como uma central de controle e monitoramento do bot.
+Este painel foi feito para que qualquer operador consiga acompanhar e controlar o bot de trade de forma visual, sem precisar entender código.
+
+---
 
 ## O que o dashboard mostra
 
-### 1. Situação geral do bot
+### 1. Status operacional
 
 Na parte principal da tela, o dashboard mostra:
 
-- se o bot está ativo ou pausado
+- se o bot está ativo, pausado ou parado
 - se o auto-trading está ligado ou desligado
-- o lucro ou prejuízo atual
-- se a conexão com o backend está funcionando em tempo real
-
-Isso ajuda a entender rapidamente se o sistema está operando normalmente.
+- se o intake de sinais está ativo ou desativado
+- o venue ativo (ex: `DRIFT`, `JUPITER`)
+- o modo de operação (PAPER ou LIVE)
+- uptime desde o último início
 
 ### 2. Posições abertas
 
-O painel mostra as operações que estão abertas no momento.
+Para cada posição aberta:
 
-Para cada posição, é possível ver:
-
-- ativo negociado, como `SOL` ou `ETH`
-- direção da operação, como compra (`LONG`) ou venda (`SHORT`)
-- tamanho da posição
+- ativo negociado (`SOL`, `ETH`, etc.)
+- direção (`LONG` ou `SHORT`)
+- alavancagem
 - preço de entrada
-- preço atual
-- lucro ou prejuízo
-- exposição da operação
+- preço atual (mark price)
+- PnL atual (valor e %)
+- colateral e nocional
+- TP e SL configurados
 
-Isso permite enxergar onde o dinheiro está alocado e como cada trade está performando.
+### 3. Conta e saldo
 
-### 3. Métricas visuais
+- equity total
+- colateral livre
+- margem usada
+- PnL não realizado
+- PnL da sessão
 
-O dashboard também mostra indicadores resumidos para facilitar a leitura:
+### 4. Log de sinais
 
-- PnL atual
-- número de operações
-- distribuição de exposição por ativo
-- visão geral da performance
+- sinais recebidos, executados e ignorados
+- motivo de cada sinal ignorado (pausa, auto-trading OFF, intake OFF, risk manager)
 
-Esses dados ajudam a entender o risco e o comportamento do bot sem precisar abrir logs técnicos.
+### 5. Log de erros
 
-### 4. Alertas operacionais
+- erros recentes com contexto
 
-Quando algo importante acontece, o painel pode destacar alertas.
-
-Exemplos:
-
-- bot pausado
-- auto-trading desligado
-- posições com risco mais alto
-- erros recentes
-
-Isso serve como um aviso visual para chamar atenção do operador.
-
-### 5. Logs e eventos
-
-Existe uma área de histórico com mensagens do sistema.
-
-Ela mostra eventos como:
-
-- conexão em tempo real ativada
-- bot pausado ou retomado
-- auto-trading ligado ou desligado
-- erros recentes
-- sinais recebidos, executados ou ignorados
-
-Isso ajuda a entender o que aconteceu nos últimos momentos.
+---
 
 ## O que pode ser controlado pelo dashboard
 
-Além de mostrar informações, o painel também permite agir sobre o bot.
+### Controles básicos
 
-### 1. Pausar o bot
+| Ação | Como |
+|------|------|
+| Pausar execução | Botão **Pause** |
+| Retomar execução | Botão **Resume** |
+| Ligar/desligar auto-trading | Toggle **Auto-trading** |
 
-Ao pausar, o bot continua online, mas deixa de executar novos sinais.
+### Controles via API REST
 
-Isso é útil quando você quer interromper temporariamente as operações sem desligar o sistema inteiro.
+O dashboard também expõe uma API REST para controle completo. Todos os endpoints de escrita requerem o header `X-API-Token` se `WEB_API_TOKEN` estiver configurado.
 
-### 2. Retomar o bot
+```
+GET  /api/state                              → snapshot completo
+POST /api/pause                              → pausar
+POST /api/resume                             → retomar
+POST /api/autotrading   { enabled: bool }    → auto-trading
+POST /api/intake        { enabled: bool }    → intake de sinais
+POST /api/close         { asset, venue? }    → fechar posição
+POST /api/close_all     { venue? }           → fechar tudo
+POST /api/open          { asset, direction, entry, tp, sl, leverage, marginType? }
+POST /api/tpsl          { asset, tp?, sl? }
+POST /api/reduce        { asset, reducePercent }
+```
 
-Ao retomar, o bot volta a operar normalmente.
+---
 
-### 3. Ligar ou desligar o auto-trading
+## Controles operacionais
 
-Quando o auto-trading está:
+### Pausar o bot
 
-- ligado: o bot pode executar operações automaticamente
-- desligado: o bot continua monitorando, mas não envia novas ordens por conta própria
+Ao pausar, o bot continua online mas deixa de executar novos sinais. Os sinais recebidos são registrados como ignorados com motivo `bot_paused`. Posições abertas não são afetadas.
 
-Isso é útil para colocar o sistema em modo observação.
+Para retomar, use o botão **Resume** ou `POST /api/resume`.
 
-### 4. Fechar uma posição específica
+### Auto-trading OFF
 
-O painel permite mandar o comando para encerrar uma operação de um ativo específico.
+Com auto-trading desativado, o bot monitora os sinais sem executar novas ordens. Os sinais aparecem no log como `autotrading_disabled`. Útil para modo observação.
 
-Exemplo:
+### Intake de sinais OFF
 
-- fechar apenas a posição de `SOL`
+Com intake desativado, todos os sinais recebidos são descartados silenciosamente antes de qualquer processamento — não aparecem no log de ignorados. Use quando quiser parar completamente a entrada de novos sinais.
 
-### 5. Fechar todas as posições
+### Ordem dos filtros
 
-Também é possível enviar um comando para encerrar tudo de uma vez.
+```
+Sinal recebido
+  │
+  ▼ Intake ativo?         NÃO → descarte silencioso
+  ▼ Pausado?              SIM → ignorado (bot_paused)
+  ▼ Auto-trading ativo?   NÃO → ignorado (autotrading_disabled)
+  ▼ executeSignal()
+```
 
-Essa ação existe para momentos de emergência, redução rápida de risco ou necessidade de parar toda a exposição do bot.
+---
 
-Por segurança, essa ação pede confirmação.
+## Trading manual
+
+### Abrir uma posição manual
+
+Via API REST:
+```bash
+curl -X POST http://localhost:3000/api/open \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: SEU_TOKEN" \
+  -d '{"asset":"SOL","direction":"LONG","entry":150,"tp":165,"sl":145,"leverage":5}'
+```
+
+A abertura manual passa pelo mesmo risk manager dos sinais automáticos.
+
+### Fechar uma posição
+
+Via API REST:
+```bash
+curl -X POST http://localhost:3000/api/close \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: SEU_TOKEN" \
+  -d '{"asset":"SOL"}'
+```
+
+### Fechar todas as posições
+
+```bash
+curl -X POST http://localhost:3000/api/close_all \
+  -H "X-API-Token: SEU_TOKEN"
+```
+
+### Atualizar TP ou SL
+
+```bash
+curl -X POST http://localhost:3000/api/tpsl \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: SEU_TOKEN" \
+  -d '{"asset":"SOL","tp":170}'
+```
+
+### Redução parcial de posição (1–95%)
+
+```bash
+curl -X POST http://localhost:3000/api/reduce \
+  -H "Content-Type: application/json" \
+  -H "X-API-Token: SEU_TOKEN" \
+  -d '{"asset":"SOL","reducePercent":25}'
+```
+
+---
+
+## Modo paper
+
+Em modo paper, o dashboard mostra posições e PnL reais do paper engine — não são dados estáticos. Todas as operações funcionam normalmente.
+
+O saldo inicial em paper é `$10.000` por padrão (configurável via `PAPER_INITIAL_BALANCE`).
+
+---
 
 ## Atualização em tempo real
 
-O dashboard foi feito para atualizar automaticamente.
+O dashboard atualiza automaticamente via WebSocket (Socket.IO). Se a conexão cair, ele reconecta e exibe o estado mais recente.
 
-Isso significa que:
-
-- o estado do bot aparece quase em tempo real
-- mudanças de pausa, retomada e auto-trading aparecem na tela
-- novas atualizações de posições e status podem ser refletidas sem precisar recarregar a página
-
-Se a conexão em tempo real cair, o sistema ainda tenta continuar funcionando de forma resiliente.
+---
 
 ## O que o dashboard não faz sozinho
 
-O dashboard não é o bot.
+O dashboard é a interface. O backend é o motor.
 
-Ele é apenas a interface visual.
+- O dashboard mostra e envia comandos
+- O backend valida, decide e executa
 
-Quem realmente executa as ações é o backend do `TradeFinderBot`.
-
-Ou seja:
-
-- o dashboard mostra
-- o backend decide e executa
-
-## Resumo simples
-
-Em termos práticos, o dashboard serve para:
-
-- ver se o bot está funcionando
-- acompanhar posições e resultados
-- enxergar risco e exposição
-- receber alertas
-- pausar ou retomar a operação
-- controlar o auto-trading
-- fechar posições individuais ou todas de uma vez
-
-Se você pensar no bot como um carro, o dashboard é o painel e o volante.
-Ele não é o motor, mas é por ele que você enxerga o que está acontecendo e toma decisões.
+Para controle via Telegram em vez do dashboard, veja o [Guia do Operador](../docs/pt-BR/guia-do-operador.md).

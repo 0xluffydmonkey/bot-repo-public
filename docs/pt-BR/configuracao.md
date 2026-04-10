@@ -120,6 +120,36 @@ Cada arquivo de carteira deve ter `chmod 600` e pertencer ao usuário do bot.
 
 ---
 
+## Segurança do dashboard
+
+Por padrão, o dashboard web só permite operações de escrita via localhost. Para habilitar acesso remoto, defina `WEB_API_TOKEN` no arquivo de segredos:
+
+```env
+WEB_API_TOKEN=uma-string-aleatoria-longa-aqui
+```
+
+Inclua em cada requisição de escrita como header:
+
+```
+X-API-Token: uma-string-aleatoria-longa-aqui
+```
+
+Operações de leitura (`GET /api/state`, atualizações via WebSocket) são sempre abertas e não requerem autenticação.
+
+---
+
+## Saldo do modo paper
+
+Em modo paper, o paper engine inicia com um saldo simulado. Para alterar o padrão de `$10.000`:
+
+```env
+PAPER_INITIAL_BALANCE=5000
+```
+
+Esta é uma configuração opcional — relevante apenas quando `PAPER_TRADING=true`.
+
+---
+
 ## Referência completa
 
 Veja [backend/.env.example](../../backend/.env.example) para todas as variáveis disponíveis com comentários.

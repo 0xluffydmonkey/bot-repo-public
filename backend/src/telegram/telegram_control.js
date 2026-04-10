@@ -147,6 +147,50 @@ export function startControlBot(token, allowedIds = []) {
     if (!sessions.isWaiting(userId)) return;
 
     const waiting = sessions.getWaiting(userId);
+    if (waiting.kind === 'reduce') {
+      const { asset } = waiting;
+      const percent = parseInt(msg.text.trim(), 10);
+
+      if (isNaN(percent) || percent < 1 || percent > 95) {
+        await bot.sendMessage(chatId,
+          `❌ Percentual inválido: <code>${msg.text.trim()}</code>\nDigite um número inteiro entre <code>1</code> e <code>95</code>.`,
+          HTML
+        ).catch(() => {});
+        return;
+      }
+
+      sessions.clearWaiting(userId);
+
+      const pos = state.positions.find(p => p.asset === asset);
+      if (!pos) {
+        await bot.sendMessage(chatId, `📭 Posição <b>${asset}</b> não encontrada.`, HTML).catch(() => {});
+        return;
+      }
+
+      const text     = S.renderConfirmReduce(pos, percent);
+      const keyboard = KB.confirmReduceKeyboard(asset, percent);
+      const session  = sessions.get(userId);
+
+      if (session.messageId && session.chatId) {
+        try {
+          await bot.editMessageText(text, {
+            chat_id:    session.chatId,
+            message_id: session.messageId,
+            parse_mode: 'HTML',
+            reply_markup: keyboard,
+            disable_web_page_preview: true,
+          });
+        } catch {
+          const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
+          sessions.set(userId, { messageId: sent.message_id, chatId });
+        }
+      } else {
+        const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
+        sessions.set(userId, { messageId: sent.message_id, chatId });
+      }
+      return;
+    }
+
     if (waiting.kind === 'manual_open') {
       try {
         const params = parseManualOpenInput(msg.text);

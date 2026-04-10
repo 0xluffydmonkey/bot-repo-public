@@ -40,19 +40,52 @@ export function mainMenuKeyboard(status) {
 // ── Config/Controles ───────────────────────────────────────────────────────────
 export function configKeyboard(status) {
   const atBtn = status.autoTrading
-    ? { text: '❌ Desativar Auto-trading', callback_data: 'ctrl:at_off' }
-    : { text: '✅ Ativar Auto-trading',    callback_data: 'ctrl:at_on'  };
+    ? { text: '❌ Desativar Auto-trading', callback_data: 'ctrl:at_off'     }
+    : { text: '✅ Ativar Auto-trading',    callback_data: 'ctrl:at_on'      };
 
   const pauseBtn = status.paused
-    ? { text: '▶️ Retomar Bot', callback_data: 'ctrl:resume' }
-    : { text: '⏸️ Pausar Bot',  callback_data: 'ctrl:pause'  };
+    ? { text: '▶️ Retomar Bot',            callback_data: 'ctrl:resume'     }
+    : { text: '⏸️ Pausar Bot',             callback_data: 'ctrl:pause'      };
+
+  const intakeBtn = status.signalIntakeEnabled
+    ? { text: '🔕 Desativar Intake',       callback_data: 'ctrl:intake_off' }
+    : { text: '🔔 Ativar Intake',          callback_data: 'ctrl:intake_on'  };
 
   return {
     inline_keyboard: [
       [atBtn],
       [pauseBtn],
+      [intakeBtn],
       [{ text: '◀️ Menu', callback_data: 'menu' }],
     ],
+  };
+}
+
+// ── Confirmações de ações sensíveis ───────────────────────────────────────────
+export function confirmPauseKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Confirmar Pausa', callback_data: 'ctrl:pause_ok' },
+      { text: '❌ Cancelar',        callback_data: 'menu:config'   },
+    ]],
+  };
+}
+
+export function confirmAtOffKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Desativar AT', callback_data: 'ctrl:at_off_ok' },
+      { text: '❌ Cancelar',     callback_data: 'menu:config'    },
+    ]],
+  };
+}
+
+export function confirmIntakeOffKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Desativar Intake', callback_data: 'ctrl:intake_off_ok' },
+      { text: '❌ Cancelar',         callback_data: 'menu:config'         },
+    ]],
   };
 }
 
@@ -78,8 +111,9 @@ export function positionDetailKeyboard(asset) {
         { text: '🔴 Fechar',     callback_data: `pos:close:${asset}`   },
       ],
       [
-        { text: '🎯 Mod TP',  callback_data: `pos:tp:${asset}` },
-        { text: '🛑 Mod SL',  callback_data: `pos:sl:${asset}` },
+        { text: '🎯 Mod TP',  callback_data: `pos:tp:${asset}`     },
+        { text: '🛑 Mod SL',  callback_data: `pos:sl:${asset}`     },
+        { text: '📉 Reduzir', callback_data: `pos:reduce:${asset}` },
       ],
       [
         { text: '◀️ Posições', callback_data: 'menu:positions' },
@@ -155,6 +189,15 @@ export function backToPositionsKeyboard() {
 export function inputCancelKeyboard(asset) {
   return {
     inline_keyboard: [[{ text: '❌ Cancelar', callback_data: `pos:view:${asset}` }]],
+  };
+}
+
+export function confirmReduceKeyboard(asset, percent) {
+  return {
+    inline_keyboard: [[
+      { text: '✅ Confirmar',  callback_data: `pos:reduce_ok:${asset}:${percent}` },
+      { text: '❌ Cancelar',   callback_data: `pos:view:${asset}`                 },
+    ]],
   };
 }
 

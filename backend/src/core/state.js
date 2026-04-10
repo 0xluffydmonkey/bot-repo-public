@@ -37,11 +37,13 @@ class BotState extends EventEmitter {
 
     // Status operacional do bot
     this.status = {
-      running:     false,
-      paused:      false,      // sinais recebidos mas não executados
-      autoTrading: true,       // false = só monitora, não executa
-      mode:        'paper',    // 'live' | 'paper'
-      startedAt:   null,
+      running:             false,
+      paused:              false,      // sinais recebidos mas não executados
+      autoTrading:         true,       // false = só monitora, não executa
+      signalIntakeEnabled: true,       // false = descarta sinais antes do processamento
+      mode:                'paper',    // 'live' | 'paper'
+      activeVenue:         '',         // definido no startup via setActiveVenue()
+      startedAt:           null,
     };
 
     // PnL da sessão
@@ -140,6 +142,19 @@ class BotState extends EventEmitter {
 
   setMode(mode) {
     this.status.mode = mode;
+    this.emit('status:update', this.status);
+    this.emit('update', this.getSnapshot());
+  }
+
+  setSignalIntakeEnabled(enabled) {
+    this.status.signalIntakeEnabled = enabled;
+    logger.info(`[STATE] Signal intake ${enabled ? 'ativado ✅' : 'desativado ❌'}`);
+    this.emit('status:update', this.status);
+    this.emit('update', this.getSnapshot());
+  }
+
+  setActiveVenue(venue) {
+    this.status.activeVenue = venue;
     this.emit('status:update', this.status);
     this.emit('update', this.getSnapshot());
   }

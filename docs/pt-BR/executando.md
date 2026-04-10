@@ -73,7 +73,7 @@ Se você vê essas linhas, o bot está funcionando corretamente.
 PAPER_TRADING=true
 ```
 
-O bot lê os sinais e os valida por todas as camadas de risco, mas **não envia transações** para a blockchain. Use por pelo menos 24 horas para verificar que tudo funciona antes de operar com dinheiro real.
+O bot executa o pipeline completo de processamento de sinais e simula a execução — nenhuma transação blockchain é enviada. O dashboard mostra posições e PnL simulados reais. Use por pelo menos 24 horas antes de operar com dinheiro real.
 
 **Operações reais:**
 
@@ -85,6 +85,32 @@ PAPER_TRADING=false
 Sinais que passarem por todas as validações de risco serão executados on-chain com fundos reais.
 
 > Recomendação: comece com `PAPER_TRADING=true` + `POSITION_SIZE_PCT=0.01` por 24h, depois aumente gradualmente.
+
+Veja [modo-paper.md](modo-paper.md) para a comparação completa de comportamento paper vs live.
+
+---
+
+## Controles operacionais
+
+Uma vez que o bot está rodando, você pode controlá-lo sem reiniciar via:
+- o dashboard em `http://localhost:3000` (se `ENABLE_WEB=true`)
+- o bot de controle Telegram (se `ENABLE_CONTROL_BOT=true`)
+
+Controles disponíveis em tempo de execução:
+
+| Controle | Efeito |
+|---------|--------|
+| Pausar | Suspende execução de sinais (sinais registrados como ignorados) |
+| Retomar | Retorna o bot à execução normal |
+| Auto-trading OFF | Modo só-monitoramento — nenhum novo trade é executado |
+| Intake OFF | Descarta silenciosamente todos os sinais antes do processamento |
+| Fechar posição | Fecha uma posição aberta a mercado |
+| Fechar tudo | Fecha todas as posições abertas a mercado |
+| Abertura manual | Abre uma posição manualmente (não depende do listener de sinais) |
+| Atualizar TP/SL | Altera take profit ou stop loss de uma posição aberta |
+| Redução parcial | Reduz uma posição em 1–95% a mercado |
+
+Veja [guia-do-operador.md](guia-do-operador.md) para instruções completas de cada controle.
 
 ---
 

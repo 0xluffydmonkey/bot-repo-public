@@ -7,6 +7,7 @@ import {
   openPositionWithRetry,
   closePosition,
   closeAllPositions,
+  reducePosition,
   updateTpSl,
   getWalletBalance,
   getLiveAccountSnapshot,
@@ -36,6 +37,10 @@ export const driftAdapter = {
 
   async closeAllTrades() {
     return closeAllPositions();
+  },
+
+  async reduceTrade(asset, baseToReduce) {
+    return reducePosition(asset, baseToReduce);
   },
 
   async updateTpSl(asset, tp, sl) {

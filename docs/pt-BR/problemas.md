@@ -128,13 +128,22 @@ journalctl -u bot-trader -b --no-pager | grep -E '(Started|Failed|Stopping)'
 
 **Nenhuma operação está sendo executada**
 
-Verifique se o modo paper está ativo:
+Verifique na ordem:
 
-```bash
-grep PAPER_TRADING backend/.env
-```
+1. Modo paper: `grep PAPER_TRADING backend/.env` — se `true`, nenhuma operação real é esperada.
+2. Intake de sinais: verifique o dashboard ou `/config` no Telegram — o **Intake** está ON?
+3. Pausa: verifique o dashboard ou `/config` — o bot está **Pausado**?
+4. Auto-trading: verifique o dashboard ou `/config` — o **Auto-trading** está ON?
 
-Se `PAPER_TRADING=true`, o bot valida os sinais mas não envia transações. Isso é esperado.
+Se os três estiverem ativos e ainda não houver trades, verifique o log de sinais (`/signals` no Telegram ou o painel de sinais do dashboard) para ver se os sinais estão chegando.
+
+---
+
+**Intake desativado — sinais não aparecem no log de ignorados**
+
+Esse é o comportamento esperado. Quando o intake de sinais está desativado, os sinais são descartados silenciosamente antes de qualquer processamento — não aparecem no log. Para voltar a ver os sinais, reative o intake:
+- Telegram: `⚙️ Config` → `🔔 Ativar Intake`
+- REST: `POST /api/intake` com `{ "enabled": true }`
 
 ---
 
@@ -145,10 +154,91 @@ Verifique os logs do bot para ver o motivo. Causas comuns:
 - `MAX_POSITIONS` já atingido — aguarde uma posição fechar
 - Margem livre abaixo de `MIN_FREE_MARGIN_PCT` — adicione fundos ou reduza o limite
 - Relação risco/retorno do sinal abaixo de 1:1 — os sinais da fonte são de baixa qualidade
-- Ativo não suportado — o sinal menciona um token que o Drift não lista
+- Ativo não suportado — o sinal menciona um token que o venue ativo não lista
 
 ---
 
 **Sinais não estão sendo detectados**
 
 Verifique se `TELEGRAM_CHANNEL_ID` está correto e igual ao do canal (incluindo o `-` para IDs de canais).
+
+Verifique também se o intake de sinais está ativo (veja acima).
+
+---
+
+## Problemas com venue
+
+**"Venue 'jupiter' does not support openTrade"**
+
+A execução live do Jupiter e Phoenix ainda não está implementada. Esses venues só suportam metadados estáticos (para validação de risco em modo paper). Solução:
+- Defina `PERP_OPEN_VENUE=drift` para trading real
+- Defina `PAPER_TRADING=true` para modo paper com qualquer venue
+
+---
+
+**"Execution adapter not registered for venue"**
+
+O valor de `PERP_OPEN_VENUE` não corresponde a nenhum venue registrado. Valores permitidos: `drift`, `jupiter`, `phoenix`. Verifique seu `.env` por erros de digitação.
+
+---
+
+**"Wallet not configured for venue"**
+
+Ao usar Jupiter ou Phoenix (live), o caminho da carteira correspondente deve estar no arquivo de segredos:
+- Jupiter: `WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json`
+- Phoenix: `WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json`
+
+---
+
+## Problemas com dashboard
+
+**Dashboard mostra dados desatualizados**
+
+O dashboard atualiza via WebSocket. Se a conexão caiu:
+- Recarregue a página — o WebSocket vai reconectar automaticamente
+- Verifique se o backend ainda está rodando: `./status.sh`
+
+---
+
+**API REST retorna 401**
+
+`WEB_API_TOKEN` está definido no arquivo de segredos mas você não está enviando no header da requisição.
+
+```bash
+curl -X POST http://localhost:3000/api/pause \
+  -H "X-API-Token: SEU_TOKEN"
+```
+
+---
+
+**API REST retorna 403**
+
+`WEB_API_TOKEN` não está definido e você está conectando de um endereço não-localhost. Solução:
+- Defina `WEB_API_TOKEN` no arquivo de segredos para acesso remoto
+- Conecte apenas de localhost
+
+---
+
+## Problemas com trading manual
+
+**Abertura manual rejeitada — "risk manager"**
+
+O trade manual falhou na validação de risco. Motivos comuns:
+- Ativo não está na lista suportada pelo venue ativo
+- TP/SL resulta em R:R < 1:1 (TP muito perto da entrada, ou SL muito longe)
+- `MAX_POSITIONS` já atingido
+- Colateral livre insuficiente
+
+A mensagem de erro na tela de confirmação do Telegram ou na resposta da API explicará o motivo específico.
+
+---
+
+**Redução parcial rejeitada — "baseToReduce < minBase"**
+
+A porcentagem digitada resultaria em um tamanho de ordem abaixo do mínimo do venue. Tente uma porcentagem maior, ou use o fechamento total.
+
+---
+
+**Redução parcial rejeitada — "baseRemaining < minBase"**
+
+Após a redução, a posição remanescente ficaria abaixo do tamanho mínimo do venue. Aumente a porcentagem para deixar uma posição remanescente maior, ou use o fechamento total.

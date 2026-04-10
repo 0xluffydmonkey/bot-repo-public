@@ -8,6 +8,7 @@ const DEFAULT_CAPABILITIES = {
   supportsOpenTrade: false,
   supportsCloseTrade: false,
   supportsCloseAll: false,
+  supportsReduceTrade: false,
   supportsMonitoring: false,
   supportsUpdateTpSl: false,
   supportsAccountSnapshot: false,

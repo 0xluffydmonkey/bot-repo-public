@@ -627,6 +627,64 @@ export async function closeAllPositions() {
   return results;
 }
 
+// ── Redução parcial de posição ─────────────────────────────────────────────
+/**
+ * Reduz parcialmente uma posição existente via market order reduceOnly.
+ *
+ * Segurança:
+ *   - Nunca chamado em paper mode (PerpExecutionService intercepta antes).
+ *   - Rejeita se baseToReduce >= posição total (use closePosition para fechar tudo).
+ *   - Caller (ManualTradeService) já validou step size e minBase antes de chamar.
+ *
+ * As ordens TP/SL existentes não são tocadas — o Drift as reduz proporcionalmente
+ * ao tamanho da posição automaticamente.
+ *
+ * @param {string} asset         - e.g. 'SOL', 'BTC'
+ * @param {number} baseToReduce  - quantidade base a reduzir (em unidades humanas, ex: 1.5 SOL)
+ * @returns {Promise<{ asset, baseReduced, txSig }>}
+ */
+export async function reducePosition(asset, baseToReduce) {
+  const marketIndex = DRIFT_MARKET_INDEX[asset.toUpperCase()];
+  if (marketIndex === undefined) {
+    throw new Error(`[DRIFT] Ativo não suportado: ${asset}`);
+  }
+
+  const { driftClient, driftUser } = await initDriftClient();
+
+  const pos = driftUser.getPerpPosition(marketIndex);
+  if (!pos || pos.baseAssetAmount.eq(new BN(0))) {
+    throw new Error(`[DRIFT] Sem posição aberta em ${asset} para reduzir`);
+  }
+
+  const isLong         = pos.baseAssetAmount.gt(new BN(0));
+  const totalBase      = Math.abs(pos.baseAssetAmount.toNumber()) / BASE_PRECISION.toNumber();
+  const baseAmountBN   = new BN(Math.round(baseToReduce * BASE_PRECISION.toNumber()));
+
+  // Safety: never allow reduce >= full position
+  if (baseToReduce >= totalBase) {
+    throw new Error(
+      `[DRIFT] baseToReduce (${baseToReduce}) >= posição total (${totalBase}). ` +
+      `Use closePosition para fechar completamente.`
+    );
+  }
+
+  const closeDirection = isLong ? PositionDirection.SHORT : PositionDirection.LONG;
+
+  const orderParams = getMarketOrderParams({
+    marketIndex,
+    direction:       closeDirection,
+    baseAssetAmount: baseAmountBN,
+    marketType:      MarketType.PERP,
+    reduceOnly:      true,
+  });
+
+  logger.info(`[DRIFT] Reduzindo ${asset}: ${baseToReduce} base (${isLong ? 'LONG→' : 'SHORT→'} parcial close)`);
+  const txSig = await driftClient.placePerpOrder(orderParams);
+  logger.info(`[DRIFT] ✅ Redução parcial ${asset}: ${baseToReduce} base | tx: ${txSig}`);
+
+  return { asset, baseReduced: baseToReduce, txSig };
+}
+
 /**
  * Atualiza TP e/ou SL de uma posição aberta de forma cirúrgica e segura.
  *

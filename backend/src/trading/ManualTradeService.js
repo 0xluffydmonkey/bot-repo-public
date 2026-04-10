@@ -17,6 +17,11 @@ import { config } from '../config/index.js';
 import state from '../core/state.js';
 import { resolveCloseVenue } from './closeVenueResolver.js';
 
+/** Resolve the venue for a position from state.positions, or null if not tracked. */
+function resolvePositionVenue(asset) {
+  return state.positions.find(p => p.asset === asset?.toUpperCase())?.venue ?? null;
+}
+
 // ─── Núcleo de execução compartilhado ─────────────────────────────────────────
 /**
  * Executa um trade a partir de um objeto signal já validado e completo.
@@ -260,6 +265,87 @@ export async function closeAllManualTrades(venue = null) {
   }
 }
 
+// ─── Redução parcial ──────────────────────────────────────────────────────────
+/**
+ * Partially reduces an open position by a percentage of its current size.
+ *
+ * Safety rules (enforced here, not in the adapter):
+ *   - reducePercent must be 1–95 inclusive. ≥95% is rejected: use closeManualTrade.
+ *   - baseToReduce and the remaining base must both be >= minBase after step snap.
+ *   - Venue is resolved from state.positions (same as close/tpsl flows).
+ *
+ * @param {string} asset          - e.g. 'SOL', 'BTC'
+ * @param {number} reducePercent  - 1–95, percentage of current size to close
+ * @returns {Promise<{ success: boolean, asset?, baseReduced?, txSig?, reason? }>}
+ */
+export async function reduceManualTrade(asset, reducePercent) {
+  const assetUpper = asset?.toUpperCase();
+
+  if (!assetUpper) {
+    return { success: false, reason: 'asset obrigatório' };
+  }
+  if (typeof reducePercent !== 'number' || reducePercent < 1 || reducePercent > 95) {
+    return { success: false, reason: 'reducePercent deve ser entre 1 e 95 (use close para fechar tudo)' };
+  }
+
+  // Resolve position from state — venue + current size
+  const pos = state.positions.find(p => p.asset === assetUpper);
+  if (!pos) {
+    return { success: false, reason: `Sem posição aberta em ${assetUpper}` };
+  }
+
+  const venue    = pos.venue ?? null;
+  const sizeBase = pos.sizeBase;
+
+  if (!sizeBase || sizeBase <= 0) {
+    return { success: false, reason: `Tamanho da posição ${assetUpper} inválido ou zero` };
+  }
+
+  // Step size and min size validation
+  let limits;
+  try {
+    limits = perpService.getMarketLimits(assetUpper);
+  } catch (err) {
+    return { success: false, reason: `Não foi possível obter limites de mercado para ${assetUpper}: ${err.message}` };
+  }
+
+  const baseRaw      = sizeBase * (reducePercent / 100);
+  const baseToReduce = perpService.snapToStep(baseRaw, limits.stepBase);
+  const baseRemaining = sizeBase - baseToReduce;
+
+  if (baseToReduce < limits.minBase) {
+    return {
+      success: false,
+      reason:  `Redução de ${reducePercent}% (${baseToReduce.toFixed(6)} ${assetUpper}) ` +
+               `abaixo do mínimo de mercado (${limits.minBase} ${assetUpper}). ` +
+               `Aumente o percentual ou feche completamente.`,
+    };
+  }
+
+  if (baseRemaining < limits.minBase) {
+    return {
+      success: false,
+      reason:  `Saldo restante após redução (${baseRemaining.toFixed(6)} ${assetUpper}) ` +
+               `ficaria abaixo do mínimo de mercado (${limits.minBase} ${assetUpper}). ` +
+               `Use close para fechar completamente.`,
+    };
+  }
+
+  logger.info(`[MANUAL] Redução parcial: ${reducePercent}% de ${assetUpper}`, {
+    sizeBase, baseToReduce, baseRemaining, venue: venue ?? '(venue ativa)',
+  });
+
+  try {
+    const result = await perpService.reduceTrade(assetUpper, baseToReduce, venue);
+    logger.info(`[MANUAL] ✅ Redução parcial concluída: ${assetUpper} −${baseToReduce} base`);
+    return { success: true, asset: assetUpper, baseReduced: baseToReduce, txSig: result.txSig };
+  } catch (err) {
+    logger.error(`[MANUAL] ❌ Falha na redução parcial de ${assetUpper}: ${err.message}`);
+    state.addError(`manual:reduce ${assetUpper}`, err);
+    return { success: false, reason: err.message };
+  }
+}
+
 // ─── Atualizar TP/SL ──────────────────────────────────────────────────────────
 /**
  * Atualiza TP e/ou SL de uma posição aberta.
@@ -275,13 +361,18 @@ export async function updateManualTpSl(asset, tp, sl) {
     return { success: false, reason: 'Informe ao menos um valor: tp ou sl' };
   }
 
+  // Resolve the venue from the tracked position — prevents routing TP/SL to the
+  // wrong venue if PERP_OPEN_VENUE changed after the position was opened.
+  const venue = resolvePositionVenue(asset);
+
   logger.info(`[MANUAL] Atualizando TP/SL: ${asset}`, {
-    tp: tp ?? '(sem alteração)',
-    sl: sl ?? '(sem alteração)',
+    tp:    tp ?? '(sem alteração)',
+    sl:    sl ?? '(sem alteração)',
+    venue: venue ?? '(venue ativa como fallback)',
   });
 
   try {
-    const result = await perpService.updateTpSl(asset, tp, sl);
+    const result = await perpService.updateTpSl(asset, tp, sl, venue);
     logger.info(`[MANUAL] ✅ TP/SL atualizado: ${asset}`);
     return { success: true, ...result };
   } catch (err) {

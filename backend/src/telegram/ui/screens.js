@@ -35,16 +35,19 @@ export function renderMenu(snap) {
 
 // ── Status detalhado ──────────────────────────────────────────────────────────
 export function renderStatus(snap) {
-  const { status, positions, signals, errors, session } = snap;
-  const statusIcon = status.paused ? '⏸️' : status.running ? '🟢' : '🔴';
+  const { status, positions, signals, errors } = snap;
+  const statusIcon  = status.paused ? '⏸️' : status.running ? '🟢' : '🔴';
+  const venueTag    = status.activeVenue ? status.activeVenue.toUpperCase() : '—';
 
   return [
     `${statusIcon} <b>Status do Bot</b>`,
     ``,
-    `Rodando:      ${status.running    ? '✅ Sim' : '❌ Não'}`,
-    `Pausado:      ${status.paused     ? '⏸️ Sim' : 'Não'}`,
-    `Auto-trading: ${status.autoTrading ? '✅ ON'  : '❌ OFF'}`,
+    `Rodando:      ${status.running             ? '✅ Sim' : '❌ Não'}`,
+    `Pausado:      ${status.paused              ? '⏸️ Sim' : 'Não'}`,
+    `Auto-trading: ${status.autoTrading         ? '✅ ON'  : '❌ OFF'}`,
+    `Intake:       ${status.signalIntakeEnabled ? '✅ ON'  : '❌ OFF'}`,
     `Modo:         ${status.mode === 'live' ? '🔴 <b>LIVE</b>' : '📝 <b>PAPER</b>'}`,
+    `Venue:        <code>${venueTag}</code>`,
     `Uptime:       ${fmtUptime(status.uptime)}`,
     ``,
     `📊 Posições abertas:  <b>${positions.length}</b>`,
@@ -219,14 +222,54 @@ export function renderSignals(snap) {
 // ── Config/Modo ───────────────────────────────────────────────────────────────
 export function renderConfig(snap) {
   const { status } = snap;
+  const venueTag = status.activeVenue ? status.activeVenue.toUpperCase() : '—';
+
   return [
     `⚙️ <b>Configurações</b>`,
     ``,
-    `Modo: ${status.mode === 'live' ? '🔴 <b>LIVE</b> (ordens reais)' : '📝 <b>PAPER</b> (simulação)'}`,
-    `Auto-trading: ${status.autoTrading ? '✅ <b>ON</b>' : '❌ <b>OFF</b>'}`,
-    `Status: ${status.paused ? '⏸️ Pausado' : '▶️ Ativo'}`,
+    `Modo:         ${status.mode === 'live' ? '🔴 <b>LIVE</b> (ordens reais)' : '📝 <b>PAPER</b> (simulação)'}`,
+    `Venue:        <code>${venueTag}</code>`,
+    `Auto-trading: ${status.autoTrading         ? '✅ <b>ON</b>'  : '❌ <b>OFF</b>'}`,
+    `Status:       ${status.paused              ? '⏸️ Pausado'    : '▶️ Ativo'}`,
+    `Intake:       ${status.signalIntakeEnabled ? '✅ <b>ON</b>'  : '❌ <b>OFF</b>'}`,
     ``,
     `<i>Use os botões abaixo para alterar.</i>`,
+  ].join('\n');
+}
+
+// ── Confirmações de ações sensíveis ───────────────────────────────────────────
+export function renderConfirmPause() {
+  return [
+    `⏸️ <b>Confirmar Pausa</b>`,
+    ``,
+    `O bot vai <b>parar de executar sinais</b> imediatamente.`,
+    `Posições abertas permanecem abertas.`,
+    `Você pode retomar a qualquer momento.`,
+    ``,
+    `Confirma?`,
+  ].join('\n');
+}
+
+export function renderConfirmAtOff() {
+  return [
+    `🔇 <b>Confirmar: Desativar Auto-trading</b>`,
+    ``,
+    `O bot vai <b>monitorar sem executar</b> novos trades.`,
+    `Posições abertas continuam sendo acompanhadas.`,
+    ``,
+    `Confirma?`,
+  ].join('\n');
+}
+
+export function renderConfirmIntakeOff() {
+  return [
+    `🔕 <b>Confirmar: Desativar Intake de Sinais</b>`,
+    ``,
+    `<b>Todos os sinais recebidos serão descartados silenciosamente.</b>`,
+    `Nenhuma posição nova será aberta.`,
+    `Posições abertas, TP/SL e reduções não são afetados.`,
+    ``,
+    `Confirma?`,
   ].join('\n');
 }
 
@@ -324,6 +367,47 @@ export function renderConfirmManualOpen(params, isPaper = false) {
     `<b>Margem:</b> <code>${esc(params.marginType ?? 'isolated')}</code>`,
     ``,
     `Confirma o envio desta ordem manual?`,
+  ].join('\n');
+}
+
+// ── Solicitar redução parcial ────────────────────────────────────────────────
+export function renderAskReduce(pos) {
+  const dirIcon = fmtDirIcon(pos?.direction);
+  const sizeUSD = pos?.sizeUSD != null ? `$${fmt(pos.sizeUSD)}` : '—';
+
+  return [
+    `📉 <b>Reduzir Posição</b>`,
+    ``,
+    `Ativo: ${dirIcon} <b>${esc(pos?.asset)}</b>`,
+    `Tamanho atual: <code>${sizeUSD}</code>`,
+    `Mark: <code>${fmtPrice(pos?.markPrice)}</code>`,
+    ``,
+    `Digite a porcentagem a reduzir (<code>1</code>–<code>95</code>):`,
+    ``,
+    `Exemplo: <code>25</code> reduz 25% da posição.`,
+    `Para fechar tudo, use ❌ Fechar.`,
+    ``,
+    `<i>Ou cancele abaixo.</i>`,
+  ].join('\n');
+}
+
+export function renderConfirmReduce(pos, percent) {
+  const dirIcon  = fmtDirIcon(pos?.direction);
+  const sizeUSD  = pos?.sizeUSD != null ? `$${fmt(pos.sizeUSD)}` : '—';
+  const reduced  = pos?.sizeUSD != null ? `$${fmt(pos.sizeUSD * (percent / 100))}` : '—';
+  const remaining = pos?.sizeUSD != null ? `$${fmt(pos.sizeUSD * (1 - percent / 100))}` : '—';
+
+  return [
+    `⚠️ <b>Confirmar Redução</b>`,
+    ``,
+    `${dirIcon} <b>${esc(pos?.asset)}</b>`,
+    `Reduzir: <b>${percent}%</b> da posição`,
+    ``,
+    `Valor atual:    <code>${sizeUSD}</code>`,
+    `Será fechado:   <code>${reduced}</code>`,
+    `Restará:        <code>${remaining}</code>`,
+    ``,
+    `<i>Execução a mercado. Confirma?</i>`,
   ].join('\n');
 }
 

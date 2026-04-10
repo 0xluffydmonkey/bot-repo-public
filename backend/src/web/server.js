@@ -10,7 +10,7 @@ import { dirname, join }  from 'path';
 import state from '../core/state.js';
 import logger from '../utils/logger.js';
 import { resolveCloseVenue } from '../trading/closeVenueResolver.js';
-import { openManualTrade, updateManualTpSl } from '../trading/ManualTradeService.js';
+import { openManualTrade, updateManualTpSl, reduceManualTrade } from '../trading/ManualTradeService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +108,13 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     res.json({ ok: true, autoTrading: Boolean(enabled) });
   });
 
+  app.post('/api/intake', requireActionAuth, (req, res) => {
+    const enabled = req.body?.enabled ?? true;
+    state.setSignalIntakeEnabled(Boolean(enabled));
+    logger.info(`[WEB] Comando: signal intake ${enabled ? 'ON' : 'OFF'}`);
+    res.json({ ok: true, signalIntakeEnabled: Boolean(enabled) });
+  });
+
   app.post('/api/close', requireActionAuth, async (req, res) => {
     const { asset, venue } = req.body ?? {};
     if (!asset) return res.status(400).json({ ok: false, error: 'asset obrigatório' });
@@ -182,6 +189,27 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     }
   });
 
+  // Reduzir posição parcialmente — síncrono: aguarda execução e retorna resultado verdadeiro.
+  // reducePercent: 1–95. Acima de 95% é rejeitado — use /api/close para fechar tudo.
+  app.post('/api/reduce', requireActionAuth, async (req, res) => {
+    const { asset, reducePercent } = req.body ?? {};
+    if (!asset || reducePercent == null) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Campos obrigatórios: asset, reducePercent (1–95)',
+      });
+    }
+    logger.info(`[WEB] Comando: redução parcial ${asset} ${reducePercent}%`);
+    try {
+      const result = await reduceManualTrade(asset, Number(reducePercent));
+      const status = result.success ? 200 : 422;
+      res.status(status).json(result);
+    } catch (err) {
+      logger.error(`[WEB] Falha inesperada em /api/reduce: ${err.message}`);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // ── SPA fallback ───────────────────────────────────────────────────────────
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
@@ -218,6 +246,7 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     socket.on('cmd:pause',       ()              => { if (assertAuth('cmd:pause'))       state.setPaused(true); });
     socket.on('cmd:resume',      ()              => { if (assertAuth('cmd:resume'))      state.setPaused(false); });
     socket.on('cmd:autotrading', ({ enabled })   => { if (assertAuth('cmd:autotrading')) state.setAutoTrading(Boolean(enabled)); });
+    socket.on('cmd:intake',      ({ enabled } = {}) => { if (assertAuth('cmd:intake')) state.setSignalIntakeEnabled(Boolean(enabled)); });
     socket.on('cmd:close',       ({ asset, venue } = {}) => {
       if (!assertAuth('cmd:close')) return;
       const { venue: resolvedVenue } = resolveCloseVenue(asset, venue, { allowActiveFallback: false });
@@ -230,6 +259,10 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     });
     socket.on('cmd:open_manual', (params)        => { if (assertAuth('cmd:open_manual')) state.emit('cmd:open_manual', params); });
     socket.on('cmd:update_tpsl', ({ asset, tp, sl }) => { if (assertAuth('cmd:update_tpsl')) state.emit('cmd:update_tpsl', { asset, tp, sl }); });
+    socket.on('cmd:reduce',      ({ asset, reducePercent } = {}) => {
+      if (!assertAuth('cmd:reduce')) return;
+      state.emit('cmd:reduce', { asset, reducePercent });
+    });
   });
 
   httpServer.listen(port, host, () => {

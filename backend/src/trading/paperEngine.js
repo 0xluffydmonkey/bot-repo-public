@@ -157,6 +157,38 @@ export const paperEngine = {
   },
 
   /**
+   * Partially reduces a paper position by the specified base amount.
+   * Caller (ManualTradeService) must validate baseToReduce against step/min before calling.
+   *
+   * @param {string} asset
+   * @param {number} baseToReduce - base units to remove from the position
+   * @returns {object}
+   */
+  reduceTrade(asset, baseToReduce) {
+    const assetUpper = asset.toUpperCase();
+    const pos = _positions.get(assetUpper);
+
+    if (!pos) {
+      logger.warn(`[PAPER] reduceTrade: ${assetUpper} não encontrada no paper store`);
+      return { asset: assetUpper, baseReduced: 0, txSig: null };
+    }
+
+    const sign     = pos.direction === 'LONG' ? 1 : -1;
+    const realized = sign * (pos.markPrice - pos.entryPrice) * baseToReduce;
+    const collateralReturned = (baseToReduce / pos.sizeBase) * pos.collateralUSD;
+
+    pos.sizeBase      -= baseToReduce;
+    pos.collateralUSD -= collateralReturned;
+    pos.sizeUSD        = pos.sizeBase * pos.markPrice;
+    _freeBalance      += collateralReturned + realized;
+
+    const txSig = `PAPER_REDUCE_${Date.now()}`;
+    logger.info(`[PAPER] 📝 Redução parcial ${assetUpper}: ${baseToReduce} base | PnL realizado: $${realized.toFixed(2)} | saldo: $${_freeBalance.toFixed(2)}`);
+
+    return { asset: assetUpper, baseReduced: baseToReduce, txSig };
+  },
+
+  /**
    * Updates TP and/or SL for a paper position.
    * Preserves the unspecified side (null = leave unchanged).
    *
