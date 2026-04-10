@@ -5,8 +5,11 @@ import { jupiterMonitoringAdapter } from '../../monitor/venues/jupiterMonitoring
 
 export const jupiterVenueManifest = {
   name: 'jupiter',
-  executionAdapter: jupiterPerpAdapter,
+  executionAdapter:  jupiterPerpAdapter,
   monitoringAdapter: jupiterMonitoringAdapter,
+  liveReady:          false,
+  notLiveReadyReason: 'Jupiter Perps REST API nao esta estavel — adapter nao implementado. Use drift ou valiant.',
+  requiredInfra:      ['drift'],  // Solana-based: needs wallet + RPC
   capabilities: {
     supportsOpenTrade: false,
     supportsCloseTrade: false,

@@ -2,7 +2,7 @@
 import logger from "./utils/logger.js";
 import { config, validateConfig, envLoadInfo, runtimePaths } from "./config/index.js";
 import { parseSignal, validateSignal } from "./parser/signal_parser.js";
-import { initDriftClient, disconnectDrift } from "./executor/drift_executor.js";
+import { runVenuePreflight, initVenueInfra, shutdownVenueInfra } from "./venues/venueBootstrap.js";
 import { perpService }          from "./trading/PerpExecutionService.js";
 import { executeSignal }        from "./trading/ManualTradeService.js";
 import { resolveCloseVenue }    from "./trading/closeVenueResolver.js";
@@ -75,8 +75,9 @@ function printBanner() {
 ╚══════════════════════════════════════════════════════════════╝
 `);
   if (!config.trading.paperMode) {
+    const liveVenue = (process.env.PERP_OPEN_VENUE ?? 'drift').toUpperCase();
     console.log(
-      "⚠️  ATENÇÃO: MODO LIVE ATIVO — ordens reais serão executadas no Drift!\n",
+      `⚠️  ATENÇÃO: MODO LIVE ATIVO — ordens reais serão executadas via ${liveVenue}!\n`,
     );
   }
 }
@@ -375,34 +376,15 @@ async function main() {
   // Inicializar estado
   state.setMode(config.trading.paperMode ? 'paper' : 'live');
 
-  // Log de venue ativa e capabilities — visível no startup para diagnóstico rápido
-  {
-    const activeVenue    = perpService.getActiveVenue();
-    const capabilities   = perpService.getCapabilities();
-    const readyFlags     = Object.entries(capabilities)
-      .filter(([, v]) => v)
-      .map(([k]) => k.replace(/^supports/, '').replace(/([A-Z])/g, c => `_${c.toLowerCase()}`).slice(1));
-    const notReadyFlags  = Object.entries(capabilities)
-      .filter(([, v]) => !v)
-      .map(([k]) => k.replace(/^supports/, '').replace(/([A-Z])/g, c => `_${c.toLowerCase()}`).slice(1));
-    state.setActiveVenue(activeVenue);
-    logger.info(`[BOT] Venue ativa: ${activeVenue.toUpperCase()}`, {
-      pronto:     readyFlags.length  > 0 ? readyFlags.join(', ')  : '(nenhuma)',
-      naoSuporta: notReadyFlags.length > 0 ? notReadyFlags.join(', ') : '(nenhuma)',
-    });
-  }
+  // Venue preflight — validates liveReady + required capabilities (fails fast if not ok)
+  runVenuePreflight(config.trading.paperMode);
+  state.setActiveVenue(perpService.getActiveVenue());
 
   // Iniciar rastreamento de posições (alertas + trailing stop)
   positionManager.start();
 
-  // Pré-aquecer o DriftClient
-  if (!config.trading.paperMode) {
-    logger.info(`[BOT] Conectando ao Drift Protocol...`);
-    await initDriftClient();
-    logger.info(`[BOT] Drift conectado ✓`);
-  } else {
-    logger.info(`[BOT] Modo paper — Drift não será inicializado`);
-  }
+  // Initialize only the infrastructure required by the active venue
+  await initVenueInfra(config.trading.paperMode);
 
   // Registrar handlers de comandos remotos
   registerCommandHandlers();
@@ -440,7 +422,7 @@ async function shutdown(signal) {
   if (typeof _stopControlBot?.stopPolling === 'function') {
     _stopControlBot.stopPolling();
   }
-  await disconnectDrift();
+  await shutdownVenueInfra();
   process.exit(0);
 }
 

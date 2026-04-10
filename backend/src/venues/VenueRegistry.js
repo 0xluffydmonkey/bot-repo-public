@@ -31,12 +31,21 @@ class VenueRegistry {
 
     this._venues.set(name, {
       name,
-      executionAdapter: manifest.executionAdapter ?? null,
-      monitoringAdapter: manifest.monitoringAdapter ?? null,
+      executionAdapter:   manifest.executionAdapter   ?? null,
+      monitoringAdapter:  manifest.monitoringAdapter  ?? null,
       capabilities: {
         ...DEFAULT_CAPABILITIES,
         ...(manifest.capabilities ?? {}),
       },
+      // Readiness model —————————————————————————————————————————
+      // liveReady:          true if the venue is safe for production live trading.
+      //                     If false, boot will fail fast in live mode with a clear error.
+      // notLiveReadyReason: human-readable explanation surfaced in the boot error.
+      // requiredInfra:      list of infra tokens this venue needs at startup.
+      //                     Supported tokens: 'drift' (Solana wallet + RPC connection)
+      liveReady:          manifest.liveReady          ?? false,
+      notLiveReadyReason: manifest.notLiveReadyReason ?? 'venue nao declarada como live-ready',
+      requiredInfra:      Array.isArray(manifest.requiredInfra) ? manifest.requiredInfra : [],
     });
 
     return this._venues.get(name);
@@ -76,6 +85,18 @@ class VenueRegistry {
 
   supports(venue = this.getActiveVenue(), capability) {
     return Boolean(this.getCapabilities(venue)?.[capability]);
+  }
+
+  isLiveReady(venue = this.getActiveVenue()) {
+    return Boolean(this._venues.get(venue)?.liveReady);
+  }
+
+  getLiveReadyReason(venue = this.getActiveVenue()) {
+    return this._venues.get(venue)?.notLiveReadyReason ?? null;
+  }
+
+  getRequiredInfra(venue = this.getActiveVenue()) {
+    return this._venues.get(venue)?.requiredInfra ?? [];
   }
 }
 

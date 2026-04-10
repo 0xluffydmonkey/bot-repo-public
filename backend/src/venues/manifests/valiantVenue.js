@@ -11,6 +11,9 @@ export const valiantVenueManifest = {
   name: 'valiant',
   executionAdapter:  valiantAdapter,
   monitoringAdapter: valiantMonitoringAdapter,
+  liveReady:          true,
+  notLiveReadyReason: null,
+  requiredInfra:      [],  // EVM/HTTP only — no Solana wallet or RPC needed
   capabilities: {
     supportsOpenTrade:           true,
     supportsCloseTrade:          true,

@@ -5,8 +5,11 @@ import { phoenixMonitoringAdapter } from '../../monitor/venues/phoenixMonitoring
 
 export const phoenixVenueManifest = {
   name: 'phoenix',
-  executionAdapter: phoenixPerpAdapter,
+  executionAdapter:  phoenixPerpAdapter,
   monitoringAdapter: phoenixMonitoringAdapter,
+  liveReady:          false,
+  notLiveReadyReason: 'Phoenix Perps em beta privado — adapter nao implementado. Use drift ou valiant.',
+  requiredInfra:      ['drift'],  // Solana-based: needs wallet + RPC
   capabilities: {
     supportsOpenTrade: false,
     supportsCloseTrade: false,

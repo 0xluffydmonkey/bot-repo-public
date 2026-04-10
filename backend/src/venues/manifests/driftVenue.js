@@ -5,8 +5,11 @@ import { driftMonitoringAdapter } from '../../monitor/venues/driftMonitoring.js'
 
 export const driftVenueManifest = {
   name: 'drift',
-  executionAdapter: driftAdapter,
+  executionAdapter:  driftAdapter,
   monitoringAdapter: driftMonitoringAdapter,
+  liveReady:          true,
+  notLiveReadyReason: null,
+  requiredInfra:      ['drift'],  // needs Solana wallet + RPC connection
   capabilities: {
     supportsOpenTrade: true,
     supportsCloseTrade: true,
