@@ -1,153 +1,79 @@
 # Trade Bot Dashboard
 
-Dashboard local premium para monitoramento e controle de bot de trade, construído com React, TypeScript, Vite, Tailwind, Socket.IO e TanStack Query.
+Dashboard local para monitoramento e controle do bot trader, construído com React, TypeScript, Vite, Tailwind, Socket.IO e TanStack Query.
 
-## O que está pronto
+## O Que Está Pronto
 
-- tema dark premium com alternância para light
 - atualização em tempo real via Socket.IO
 - fallback resiliente via `GET /api/state`
-- cards executivos com status principais
-- painel operacional com pausa, retomada, toggle de auto-trading e fechamento global com confirmação forte
-- tabela profissional de posições com filtro, ordenação e ação por ativo
+- cards de status e métricas principais
+- painel operacional com pausa, retomada, auto-trading e fechamento com confirmação
+- tabela de posições com filtros, ordenação e ações por ativo
 - área de logs/eventos locais em tempo real
-- painéis de analytics preparados para evolução do state
-- arquitetura modular e escalável
+- estrutura modular para evoluir novos campos do backend
 
-## Estrutura
+## Como Rodar Localmente
 
-```text
-trade-bot-dashboard/
-├─ public/
-├─ src/
-│  ├─ api/
-│  ├─ components/
-│  │  ├─ charts/
-│  │  ├─ controls/
-│  │  ├─ layout/
-│  │  ├─ logs/
-│  │  ├─ metrics/
-│  │  ├─ positions/
-│  │  ├─ status/
-│  │  └─ ui/
-│  ├─ hooks/
-│  ├─ lib/
-│  ├─ pages/
-│  ├─ providers/
-│  ├─ store/
-│  └─ types/
-├─ index.html
-├─ package.json
-├─ tailwind.config.ts
-├─ vite.config.ts
-└─ README.md
-```
+### 1. Backend
 
-## Como rodar localmente
+O backend expõe endpoints REST e Socket.IO. Ele serve os assets estáticos finais a partir de `backend/src/web/public/` e publica o `state` em tempo real por Socket.IO.
 
-### 1) Backend do bot
-Seu servidor atual já expõe os endpoints REST e Socket.IO. Pelo arquivo enviado, ele serve estáticos a partir de `public/` e publica `state` por Socket.IO. fileciteturn0file0L1-L67
-
-### 2) Rodar o frontend em desenvolvimento
-Dentro da pasta do dashboard:
+### 2. Desenvolvimento
 
 ```bash
 npm install
 npm run dev
 ```
 
-O Vite sobe em `http://localhost:5173` e faz proxy automático para o backend em `http://localhost:3000`.
+Directory: `frontend/`
 
-### 3) Build para integrar no seu servidor atual
-Para gerar os assets estáticos:
+O Vite sobe em `http://localhost:5173` e faz proxy para o backend em `http://localhost:3000`.
+
+### 3. Build
 
 ```bash
 npm run build
 ```
 
-Isso gera a pasta `dist/`.
+Directory: `frontend/`
 
-### 4) Build direto para o `public/` do seu backend
-Se quiser que o Express entregue a interface final diretamente, use uma destas abordagens:
-
-#### Opção A: copiar manualmente
-Copie o conteúdo de `dist/` para a pasta `public/` do seu backend.
-
-#### Opção B: build direto no diretório de estáticos
-No Linux/macOS:
+Para gerar o build direto no diretório servido pelo backend:
 
 ```bash
-VITE_STATIC_OUT_DIR=../src/web/public npm run build
+npm run build:backend
 ```
 
-No Windows PowerShell:
+Directory: `frontend/`
 
-```powershell
-$env:VITE_STATIC_OUT_DIR="../src/web/public"; npm run build
-```
+## Contrato de Dados
 
-Ajuste o caminho conforme a estrutura real do seu projeto.
+O frontend consome o snapshot de `GET /api/state` e eventos Socket.IO `state`. Ele deve continuar tolerante a campos ausentes para permitir evolução incremental do backend.
 
-## Contrato de dados esperado do state
-
-O frontend é tolerante a evolução do backend. Hoje ele tenta ler estes campos quando existirem:
+Campos principais esperados:
 
 ```ts
 {
-  paused?: boolean
-  autoTrading?: boolean
-  updatedAt?: string
-  positions?: Array<{
-    asset: string
-    side?: string
-    quantity?: number
-    entryPrice?: number
-    currentPrice?: number
-    pnl?: number
-    pnlPct?: number
-    exposure?: number
-    risk?: string
-    updatedAt?: string
-  }>
-  logs?: Array<{
-    id?: string
-    message: string
-    level?: 'info' | 'success' | 'warning' | 'error'
-    source?: 'system' | 'user' | 'backend'
-    timestamp?: string
-  }>
-  metrics?: {
-    pnl?: number
-    pnlPct?: number
-    trades?: number
-    winRate?: number
-    drawdown?: number
-    exposure?: number
-    exposureByAsset?: Array<{ asset: string; value: number }>
-    equityCurve?: Array<{ time: string; value: number }>
+  account?: object
+  positions?: Array<object>
+  signals?: object
+  errors?: Array<object>
+  status?: {
+    running?: boolean
+    paused?: boolean
+    autoTrading?: boolean
+    signalIntakeEnabled?: boolean
+    mode?: 'paper' | 'live'
+    activeVenue?: string
   }
-  alerts?: Array<{
-    id?: string
-    title: string
-    description?: string
-    severity: 'info' | 'success' | 'warning' | 'error' | 'critical'
-  }>
+  session?: object
+  lastUpdate?: string | Date
 }
 ```
 
-Mesmo que o backend ainda não entregue tudo, a UI já possui placeholders elegantes e adapters para acomodar novos campos depois.
+## Integração
 
-## Melhorias futuras recomendadas
+O frontend usa REST como canal principal de comando e Socket.IO para observabilidade em tempo real. Essa separação mantém a UX previsível e facilita debugging.
 
-- autenticação local com PIN operacional para comandos destrutivos
-- auditoria persistente em banco local
-- watchlists customizadas por operador
-- heatmap de risco e exposição por classe de ativo
-- painel de saúde do processo do bot: heartbeat, latência, fila de eventos, consumo de memória
-- gráficos intraday com zoom, brush e marcação de eventos operacionais
-- exportação CSV/JSON de logs e posições
-- modo multi-instância para vários bots
+Comandos críticos no backend exigem `WEB_API_TOKEN` para acesso remoto, ou ficam restritos a localhost quando o token não está configurado.
 
-## Observação sobre integração
-
-O arquivo do backend que você enviou aceita tanto REST quanto comandos por Socket.IO, mas hoje o frontend usa REST como canal principal de comando e Socket.IO para observabilidade em tempo real, que é a estratégia mais segura para UX previsível e debugging simples. Os eventos `cmd:*` permanecem disponíveis para expansão futura. fileciteturn0file0L15-L61
+File: `/opt/bot/secrets/bot-secrets.env`

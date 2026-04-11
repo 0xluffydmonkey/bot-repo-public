@@ -25,6 +25,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable bot-trader
 ```
 
+Files:
+- origem: `backend/deploy/systemd/bot-trader.service`
+- serviço instalado: `/etc/systemd/system/bot-trader.service`
+
 `enable` significa que o serviço vai iniciar automaticamente no boot.
 
 ---
@@ -93,7 +97,11 @@ sudo systemctl status bot-trader
 sudo systemctl edit bot-trader
 ```
 
+Arquivo criado/atualizado pelo systemd: `/etc/systemd/system/bot-trader.service.d/override.conf`
+
 Exemplo — forçar modo paper:
+
+File: `/etc/systemd/system/bot-trader.service.d/override.conf`
 
 ```ini
 [Service]

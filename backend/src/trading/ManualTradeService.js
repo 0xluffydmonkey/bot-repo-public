@@ -140,6 +140,26 @@ export async function executeSignal(signal, opts = {}) {
   const result = await perpService.openTrade(tradeParams);  // lança se falhar
   state.signalExecuted(signal, result);
 
+  // ── TP/SL protection check — surface failure to dashboard / Telegram ─────────
+  // Only applies when: live mode + venue returned a tpsl field (Valiant/Hyperliquid)
+  // + TP or SL was requested + placement returned nothing.
+  // Drift results never include a `tpsl` field, so `'tpsl' in result` keeps them unaffected.
+  if (!config.trading.paperMode && 'tpsl' in result) {
+    const tpslRequested = tradeParams.tp != null || tradeParams.sl != null;
+    const tpslFailed    = tpslRequested && (!result.tpsl || result.tpsl.length === 0);
+    if (tpslFailed) {
+      state.addError(
+        `tpsl:open:${tradeParams.asset}`,
+        new Error(
+          `TP/SL placement failed for ${tradeParams.asset} (${result.venue}). ` +
+          `Position is open without native protection. ` +
+          `Set manually: cmd:update_tpsl ${tradeParams.asset}`
+        )
+      );
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   return { success: true, result, tradeParams };
 }
 

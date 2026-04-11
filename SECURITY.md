@@ -21,7 +21,8 @@ Not allowed in `.env`:
 
 ## Safe pattern
 Use:
-- `BOT_WALLET_PATH=/opt/bot/secrets/drift-wallet.json`
+- `BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json`
+- venue-specific paths such as `WALLET_<VENUE>_PATH=/opt/bot/secrets/<venue-wallet>.json`
 - `TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt`
 
 ## Incident response

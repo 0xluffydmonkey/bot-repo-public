@@ -191,7 +191,7 @@ function positionRow(pos) {
  * @param {object}  opts.stats            - { signals, executed, ignored, errors }
  */
 export function render(data, opts = {}) {
-  const { account, positions, timestamp, isPaper } = data;
+  const { account, positions, timestamp, isPaper, venue } = data;
   const {
     refreshMs   = 10_000,
     nextRefresh = null,
@@ -225,10 +225,13 @@ export function render(data, opts = {}) {
     botLabel + ' '.repeat(gap1) + dtLabel
   ));
 
-  // Linha 2 — protocolo
+  // Linha 2 — venue ativa
+  const venueLabel = isPaper
+    ? 'Paper Mode'
+    : (venue ?? 'drift').charAt(0).toUpperCase() + (venue ?? 'drift').slice(1) + ' Perps';
   lines.push(row(
     ' '.repeat(4) + c(LOGO[1], CYAN) + ' '.repeat(3) +
-    c('Drift Protocol', CYAN)
+    c(venueLabel, CYAN)
   ));
 
   // Linha 3 — separador
@@ -361,7 +364,7 @@ export function renderError(err, lastData) {
   const msg   = String(err?.message ?? err ?? 'Erro desconhecido');
   const lines = [
     '',
-    `  ${BYELLOW}${B}\u26A0  Falha ao conectar ao Drift Protocol${R}`,
+    `  ${BYELLOW}${B}\u26A0  Falha ao iniciar o monitor${R}`,
     '',
     `  ${DIM}Erro:${R} ${BRED}${msg}${R}`,
     '',

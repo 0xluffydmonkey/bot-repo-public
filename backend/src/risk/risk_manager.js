@@ -61,7 +61,7 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
     return null;
   }
 
-  // ─── 3. Dados de conta — Drift é a fonte de verdade ──────────────────────
+  // ─── 3. Dados de conta — venue ativa é a fonte de verdade ────────────────
   const isPaper = config.trading.paperMode;
 
   let freeCollateral, totalEquity, currentPositions, totalNotional;
@@ -89,7 +89,7 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
     currentPositions = account.positionCount;
     totalNotional    = account.totalNotional;
 
-    logger.info(`[RISK] Conta (Drift): freeCollateral=$${freeCollateral.toFixed(2)} | equity=$${totalEquity.toFixed(2)} | posições=${currentPositions} | notional=$${totalNotional.toFixed(2)}`);
+    logger.info(`[RISK] Conta (${perpService.getActiveVenue().toUpperCase()}): freeCollateral=$${freeCollateral.toFixed(2)} | equity=$${totalEquity.toFixed(2)} | posições=${currentPositions} | notional=$${totalNotional.toFixed(2)}`);
   }
 
   // ─── 4. Limite de posições simultâneas ────────────────────────────────────

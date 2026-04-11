@@ -22,9 +22,9 @@ nano /opt/bot/secrets/bot-secrets.env
 
 ---
 
-**"Missing required secret: SOLANA_RPC_URL"**
+**"Missing required secret: SOLANA_RPC_URL" or another backend credential**
 
-The file exists but still has a placeholder value (`SET_IN_SERVER_ONLY`). Open the file and replace it with a real value:
+The file exists but the selected module/backend is missing a required value or still has a placeholder (`SET_IN_SERVER_ONLY`). Open the secrets file and replace placeholders with real values:
 
 ```bash
 nano /opt/bot/secrets/bot-secrets.env
@@ -166,27 +166,50 @@ Also check signal intake is enabled (see above).
 
 ---
 
-## Venue issues
+## Backend / venue issues
 
-**"Venue 'jupiter' does not support openTrade"**
+**"Venue '<name>' does not support openTrade"**
 
-Jupiter and Phoenix live execution is not yet implemented. These venues only support static metadata (for paper mode risk validation). Either:
-- Set `PERP_OPEN_VENUE=drift` for live trading
-- Set `PAPER_TRADING=true` for paper mode with any venue
+The selected backend is registered but does not expose live execution capability in this codebase. Either:
+- choose a live-ready backend in `PERP_OPEN_VENUE`
+- keep `PAPER_TRADING=true` while testing static metadata and risk validation
 
 ---
 
 **"Execution adapter not registered for venue"**
 
-The `PERP_OPEN_VENUE` value doesn't match any registered venue. Allowed values: `drift`, `jupiter`, `phoenix`. Check your `.env` for typos.
+The `PERP_OPEN_VENUE` value doesn't match any registered backend/venue. Current registered values include `drift`, `jupiter`, `phoenix`, and `valiant`. Check your `.env` for typos and confirm the venue is registered in the codebase.
 
 ---
 
-**"Wallet not configured for venue"**
+**"Wallet/key not configured for venue"**
 
-When using Jupiter or Phoenix (live), the matching wallet path must be in the secrets file:
-- Jupiter: `WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json`
-- Phoenix: `WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json`
+The selected backend requires a wallet or signing key path that is missing from the secrets file. Use the `*_PATH` model:
+
+File: `/opt/bot/secrets/bot-secrets.env`
+
+```env
+WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
+WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
+WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+```
+
+Never put raw private keys in `.env` or `bot-secrets.env`.
+
+---
+
+**Auto-trading is ON globally but automated live orders are still blocked**
+
+Some backends have an extra explicit startup gate to prevent accidental automated execution. Check backend-specific flags such as:
+
+File: `backend/.env`
+
+```env
+ENABLE_AUTO_TRADING_VALIANT=true
+```
+
+Only enable these after paper testing, preflight, and a small manual live test.
 
 ---
 
@@ -204,6 +227,8 @@ The dashboard updates via WebSocket. If the connection dropped:
 
 `WEB_API_TOKEN` is set in your secrets file but you're not providing it in the request header.
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```bash
 curl -X POST http://localhost:3000/api/pause \
   -H "X-API-Token: YOUR_TOKEN"
@@ -214,7 +239,7 @@ curl -X POST http://localhost:3000/api/pause \
 **REST API returns 403**
 
 `WEB_API_TOKEN` is not set and you're connecting from a non-localhost address. Either:
-- Set `WEB_API_TOKEN` in your secrets file for remote access
+- Set `WEB_API_TOKEN` in your secrets file for remote access: `/opt/bot/secrets/bot-secrets.env`
 - Connect only from localhost
 
 ---

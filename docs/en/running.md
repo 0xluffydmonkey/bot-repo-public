@@ -37,8 +37,8 @@ chmod 600 /opt/bot/secrets/telegram_session.txt
 ```
 [START] Loading secrets from: /opt/bot/secrets/bot-secrets.env
 [START] node: v20.x.x
-[CONFIG] Secret loaded: SOLANA_RPC_URL ✓
 [CONFIG] Secret loaded: TELEGRAM_API_ID ✓
+[CONFIG] Secret loaded: <backend-specific credentials> ✓
 [TELEGRAM] Authenticated successfully
 [BOT] Active — waiting for signals
 [WEB] Dashboard available at http://localhost:3000
@@ -68,6 +68,8 @@ If you see these lines, the bot is running correctly.
 
 **Paper mode** (safe — no real transactions):
 
+File: `backend/.env`
+
 ```env
 # backend/.env
 PAPER_TRADING=true
@@ -77,12 +79,14 @@ The bot runs the full signal processing pipeline and simulates execution — no 
 
 **Live trading:**
 
+File: `backend/.env`
+
 ```env
 # backend/.env
 PAPER_TRADING=false
 ```
 
-Signals that pass all risk checks will be executed on-chain with real funds.
+Signals that pass all risk checks will be submitted to the selected live backend with real funds.
 
 > Recommended first steps: `PAPER_TRADING=true` + `POSITION_SIZE_PCT=0.01` for 24h, then gradually increase.
 

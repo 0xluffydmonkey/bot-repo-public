@@ -8,6 +8,8 @@ Paper mode is the bot's safe simulation environment. It is the **default mode** 
 
 In `backend/.env`:
 
+File: `backend/.env`
+
 ```env
 PAPER_TRADING=true
 ```
@@ -42,14 +44,16 @@ The paper engine:
 
 - On-chain transaction success
 - Actual market liquidity or slippage
-- Real Drift order book state
-- Gas fee availability
+- Real order book or liquidity state for the selected backend
+- Fee/gas availability for the selected backend
 
 ---
 
 ## Paper engine balance
 
 The starting balance is `$10,000` by default. Change it:
+
+File: `backend/.env`
 
 ```env
 PAPER_INITIAL_BALANCE=5000
@@ -86,16 +90,16 @@ This label makes it impossible to confuse a paper session with live trading in T
 |----------|-------|------|
 | Signal intake and parsing | ✅ Full pipeline | ✅ Full pipeline |
 | Risk manager validation | ✅ All layers | ✅ All layers |
-| Blockchain transactions | ❌ Simulated in-memory | ✅ Real on-chain |
-| Balance tracking | ✅ Paper engine (in-memory) | ✅ Live DriftUser account |
-| Position tracking | ✅ Paper engine | ✅ Live chain state |
+| Live transactions | ❌ Simulated in-memory | ✅ Real backend orders |
+| Balance tracking | ✅ Paper engine (in-memory) | ✅ Live backend account |
+| Position tracking | ✅ Paper engine | ✅ Live backend state |
 | Dashboard shows live data | ✅ | ✅ |
 | Telegram position alerts | ✅ With 🧪 label | ✅ |
 | Manual trading | ✅ | ✅ |
-| TP/SL update | ✅ (simulated) | ✅ (on-chain order) |
-| Partial reduce | ✅ (simulated) | ✅ (on-chain order) |
-| Drift connection required | ❌ Not initialized | ✅ Required |
-| State persists after restart | ❌ Resets | ✅ Chain is source of truth |
+| TP/SL update | ✅ (simulated) | ✅ Backend order when supported |
+| Partial reduce | ✅ (simulated) | ✅ Backend order when supported |
+| Live backend connection required | ❌ Not initialized | ✅ Required |
+| State persists after restart | ❌ Resets | ✅ Backend is source of truth |
 
 ---
 
@@ -103,7 +107,7 @@ This label makes it impossible to confuse a paper session with live trading in T
 
 Paper mode is venue-agnostic. The paper engine intercepts all execution calls regardless of which venue is configured via `PERP_OPEN_VENUE`.
 
-However, the bot still uses static venue metadata (supported assets, leverage limits, step sizes) for risk validation. All three built-in venues (Drift, Jupiter, Phoenix) expose this static data.
+However, the bot still uses venue metadata (supported assets, leverage limits, step sizes) for risk validation. This lets paper mode catch many configuration and sizing issues before live trading.
 
 ---
 
@@ -117,5 +121,5 @@ Before switching `PAPER_TRADING=false`:
 - [ ] Telegram position cards appear correctly
 - [ ] Operational controls work as expected
 - [ ] Risk parameters are tuned to your comfort level
-- [ ] Live wallet is funded (USDC for trading, ~0.1 SOL for gas)
+- [ ] Live account is funded with the collateral and fee/gas asset required by the selected backend
 - [ ] `POSITION_SIZE_PCT` is set conservatively (recommended: `0.01` = 1%)

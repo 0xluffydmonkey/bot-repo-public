@@ -8,6 +8,8 @@ O modo paper é o ambiente de simulação seguro do bot. É o **modo padrão** e
 
 Em `backend/.env`:
 
+File: `backend/.env`
+
 ```env
 PAPER_TRADING=true
 ```
@@ -40,16 +42,18 @@ O paper engine:
 
 ### O que o modo paper NÃO valida
 
-- Sucesso de transações on-chain
+- Sucesso de transações/ordens live
 - Liquidez real de mercado ou slippage
-- Estado real do order book do Drift
-- Disponibilidade de taxas de gas
+- Estado real do order book ou liquidez do backend selecionado
+- Disponibilidade de taxas/gas do backend selecionado
 
 ---
 
 ## Saldo do paper engine
 
 O saldo inicial é `$10.000` por padrão. Para alterar:
+
+File: `backend/.env`
 
 ```env
 PAPER_INITIAL_BALANCE=5000
@@ -86,16 +90,16 @@ Esse rótulo torna impossível confundir uma sessão paper com trading real no T
 |--------------|-------|------|
 | Intake e parse de sinais | ✅ Pipeline completo | ✅ Pipeline completo |
 | Validação do risk manager | ✅ Todas as camadas | ✅ Todas as camadas |
-| Transações blockchain | ❌ Simulado em memória | ✅ Real on-chain |
-| Rastreamento de saldo | ✅ Paper engine (memória) | ✅ Conta Drift real |
-| Rastreamento de posições | ✅ Paper engine | ✅ Estado on-chain |
+| Transações live | ❌ Simulado em memória | ✅ Ordens reais no backend |
+| Rastreamento de saldo | ✅ Paper engine (memória) | ✅ Conta live do backend |
+| Rastreamento de posições | ✅ Paper engine | ✅ Estado live do backend |
 | Dashboard mostra dados reais | ✅ | ✅ |
 | Alertas de posição no Telegram | ✅ Com rótulo 🧪 | ✅ |
 | Trading manual | ✅ | ✅ |
-| Atualização de TP/SL | ✅ (simulado) | ✅ (ordem on-chain) |
-| Redução parcial | ✅ (simulado) | ✅ (ordem on-chain) |
-| Conexão com Drift necessária | ❌ Não inicializado | ✅ Obrigatório |
-| Estado persiste após reinício | ❌ É resetado | ✅ Chain é a fonte da verdade |
+| Atualização de TP/SL | ✅ (simulado) | ✅ Ordem no backend quando suportado |
+| Redução parcial | ✅ (simulado) | ✅ Ordem no backend quando suportado |
+| Conexão live com backend necessária | ❌ Não inicializado | ✅ Obrigatório |
+| Estado persiste após reinício | ❌ É resetado | ✅ Backend é a fonte da verdade |
 
 ---
 
@@ -103,7 +107,7 @@ Esse rótulo torna impossível confundir uma sessão paper com trading real no T
 
 O modo paper é venue-agnóstico. O paper engine intercepta todas as chamadas de execução independentemente do venue configurado via `PERP_OPEN_VENUE`.
 
-No entanto, o bot ainda usa metadados estáticos do venue (ativos suportados, limites de alavancagem, step sizes) para validação de risco. Os três venues internos (Drift, Jupiter, Phoenix) expõem esses dados estáticos.
+No entanto, o bot ainda usa metadados do venue (ativos suportados, limites de alavancagem, step sizes) para validação de risco. Isso ajuda o paper mode a detectar problemas de configuração e sizing antes do live.
 
 ---
 
@@ -117,5 +121,5 @@ Antes de mudar `PAPER_TRADING=false`:
 - [ ] Cards de posição no Telegram aparecendo corretamente
 - [ ] Controles operacionais funcionando conforme esperado
 - [ ] Parâmetros de risco ajustados conforme seu nível de conforto
-- [ ] Carteira live com fundos (USDC para trading, ~0,1 SOL para gas)
+- [ ] Conta live com colateral e ativo de taxas/gas exigidos pelo backend selecionado
 - [ ] `POSITION_SIZE_PCT` configurado de forma conservadora (recomendado: `0.01` = 1%)

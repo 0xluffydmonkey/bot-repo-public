@@ -391,13 +391,157 @@ export async function getAccountSnapshot() {
     (acc, p) => acc + Math.abs(parseFloat(p.position?.positionValue ?? '0')),
     0
   );
+  const unrealizedPnl = open.reduce(
+    (acc, p) => acc + parseFloat(p.position?.unrealizedPnl ?? '0'),
+    0
+  );
 
   return {
     freeCollateral,
     totalEquity:   accountValue,
     positionCount: open.length,
     totalNotional,
+    marginUsed:    totalMarginUsed,
+    unrealizedPnl,
   };
+}
+
+/**
+ * Returns all open orders for the account (all assets).
+ * Used by setTpSl to cancel existing TP/SL before placing new ones.
+ * @returns {Promise<Array>}
+ */
+export async function getOpenOrders() {
+  const data = await _postInfo({ type: 'openOrders', user: getAccountAddress() });
+  return Array.isArray(data) ? data : [];
+}
+
+/**
+ * Cancel all open orders for a specific asset (best-effort, never throws).
+ * Used internally by setTpSl to clear existing TP/SL before placing new ones.
+ * Logs a warning on failure but does not re-throw — cancel failure must not
+ * block subsequent TP/SL placement.
+ */
+async function _cancelOrdersForAsset(assetIndex, coinName) {
+  let orders;
+  try {
+    orders = await getOpenOrders();
+  } catch (err) {
+    logger.warn(`[HL] getOpenOrders failed during cancel for ${coinName}: ${err.message} — skipping cancel`);
+    return 0;
+  }
+
+  const coinUpper = coinName.toUpperCase();
+  const toCancel  = orders.filter(
+    (o) => o.coin?.replace(/-PERP$/i, '').toUpperCase() === coinUpper
+  );
+
+  if (toCancel.length === 0) return 0;
+
+  const cancels = toCancel.map((o) => ({ a: assetIndex, o: o.oid }));
+  try {
+    await _postExchange({ type: 'cancel', cancels });
+    logger.info(`[HL] Cancelled ${toCancel.length} existing order(s) for ${coinName}`);
+  } catch (err) {
+    logger.warn(`[HL] Cancel orders failed for ${coinName}: ${err.message} — continuing to TP/SL placement`);
+  }
+  return toCancel.length;
+}
+
+/**
+ * Place or replace TP/SL trigger orders for an open position.
+ *
+ * Flow:
+ *   1. Fetch current position (size + direction)
+ *   2. Cancel all existing orders for the asset (best-effort)
+ *   3. Place TP trigger order  (if tp != null)
+ *   4. Place SL trigger order  (if sl != null)
+ *
+ * Uses native Hyperliquid trigger orders (isMarket:true, reduce-only).
+ * When triggered, orders execute as market orders at exchange level —
+ * no bot process needed for execution after placement.
+ *
+ * @param {number}      assetIndex
+ * @param {string}      coinName   - e.g. 'SOL', 'BTC'
+ * @param {number|null} tp         - take profit price (null = skip)
+ * @param {number|null} sl         - stop loss price (null = skip)
+ * @returns {Promise<Array<{ type: 'tp'|'sl', price: number, orderId: string }>>}
+ */
+export async function setTpSl(assetIndex, coinName, tp, sl) {
+  if (tp == null && sl == null) return [];
+
+  // Fetch position to determine size and direction for the close orders
+  const positions = await getPositions();
+  const coinUpper = coinName.toUpperCase();
+  const pos = positions.find(
+    (p) => p.position?.coin?.replace(/-PERP$/i, '').toUpperCase() === coinUpper
+  );
+
+  if (!pos) {
+    throw new Error(`[HL] setTpSl: sem posicao aberta em "${coinName}"`);
+  }
+
+  const szi    = parseFloat(pos.position.szi);
+  const isLong = szi > 0;
+  const size   = Math.abs(szi).toFixed(6);
+  // Close direction is opposite to open direction
+  const closeBuy = !isLong; // true = buy to close SHORT; false = sell to close LONG
+  // Far-side limit prices match the IOC close pattern (always fill when triggered)
+  const limitPx  = closeBuy ? '999999999' : '1';
+
+  logger.info('[HL] setTpSl', {
+    coinName,
+    side:      isLong ? 'LONG' : 'SHORT',
+    size,
+    tp:        tp  ?? '(skip)',
+    sl:        sl  ?? '(skip)',
+    assetIndex,
+  });
+
+  // Cancel any existing orders for this asset before placing new ones
+  await _cancelOrdersForAsset(assetIndex, coinName);
+
+  const placed = [];
+
+  if (tp != null) {
+    const tpResult = await _postExchange({
+      type:     'order',
+      orders: [{
+        a: assetIndex,
+        b: closeBuy,
+        p: limitPx,
+        s: size,
+        r: true, // reduce-only
+        t: { trigger: { triggerPx: String(tp), isMarket: true, tpsl: 'tp' } },
+      }],
+      grouping: 'na',
+    });
+    const tpSt    = tpResult?.response?.data?.statuses?.[0];
+    const tpOid   = String(tpSt?.resting?.oid ?? tpSt?.filled?.oid ?? 'unknown');
+    logger.info('[HL] TP order placed', { coinName, tp, orderId: tpOid });
+    placed.push({ type: 'tp', price: tp, orderId: tpOid });
+  }
+
+  if (sl != null) {
+    const slResult = await _postExchange({
+      type:     'order',
+      orders: [{
+        a: assetIndex,
+        b: closeBuy,
+        p: limitPx,
+        s: size,
+        r: true,
+        t: { trigger: { triggerPx: String(sl), isMarket: true, tpsl: 'sl' } },
+      }],
+      grouping: 'na',
+    });
+    const slSt    = slResult?.response?.data?.statuses?.[0];
+    const slOid   = String(slSt?.resting?.oid ?? slSt?.filled?.oid ?? 'unknown');
+    logger.info('[HL] SL order placed', { coinName, sl, orderId: slOid });
+    placed.push({ type: 'sl', price: sl, orderId: slOid });
+  }
+
+  return placed;
 }
 
 /**

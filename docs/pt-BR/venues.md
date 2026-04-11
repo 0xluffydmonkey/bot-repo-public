@@ -1,136 +1,133 @@
-# Modelo de Venue
+# Backends / Venues
 
-O bot usa uma arquitetura multi-venue. O venue ativo é configurado na inicialização e não pode ser alterado em tempo de execução.
+O bot é multi-backend. Um backend, também chamado de venue no código, é a integração de trading usada para execução live, snapshot de conta, limites de mercado e monitoramento de posições.
 
----
+O backend ativo é selecionado na inicialização:
 
-## Como venues funcionam
-
-Toda chamada de execução de trades passa pelo `PerpExecutionService`, que seleciona o venue ativo no registry e delega ao adaptador apropriado.
-
-O venue ativo é definido por:
+File: `backend/.env`
 
 ```env
-PERP_OPEN_VENUE=drift   # drift | jupiter | phoenix
+PERP_OPEN_VENUE=drift
 ```
 
-Esta variável é lida uma vez na inicialização. `state.status.activeVenue` mostra o nome do venue resolvido — visível na tela de status do Telegram e no dashboard.
+Esse valor é lido uma vez quando o processo inicia. Para trocar de backend, edite `backend/.env` e reinicie o bot.
 
 ---
 
-## Registry de venues
+## Como a Seleção de Backend Funciona
 
-Cada venue tem um **manifest** declarando suas capabilities. As capabilities controlam quais operações o bot tem permissão de tentar.
+Todos os fluxos de execução passam pelo `PerpExecutionService`. O serviço lê o backend ativo no registry de venues e roteia a operação para o adapter correspondente.
 
-Em modo paper, o paper engine intercepta todas as chamadas de execução — o adaptador real nunca é ativado.
+Cada backend declara capabilities como:
 
----
+- abrir e fechar trades
+- fechar todas as posições
+- redução parcial
+- atualização de TP/SL
+- saldo e snapshot de conta
+- monitoramento de posições
+- ativos suportados, limites de mercado e alavancagem máxima
 
-## Venues suportados
-
-### Drift Protocol — `drift`
-
-**Status: Pronto para produção**
-
-| Capability | Suportado |
-|-----------|----------|
-| Abrir trade | ✅ |
-| Fechar trade | ✅ |
-| Fechar tudo | ✅ |
-| Redução parcial | ✅ |
-| Atualizar TP/SL | ✅ |
-| Consulta de saldo | ✅ |
-| Snapshot de conta | ✅ |
-| Ativos suportados | ✅ |
-| Limites de mercado | ✅ |
-| Alavancagem máxima | ✅ |
-| Monitoramento de posições | ✅ |
-
-**Ativos suportados:**
-
-| Ativo | Market Index |
-|-------|-------------|
-| SOL | 0 |
-| BTC | 1 |
-| ETH | 2 |
-| APT | 3 |
-| 1MBONK / BONK | 4 |
-| POL / MATIC | 5 |
-| ARB | 6 |
-| DOGE | 7 |
-| BNB | 8 |
-| SUI | 9 |
-| WIF | 23 |
-| JUP | 24 |
-
-**Carteira:** usa `WALLET_DRIFT_PATH` → fallback para `BOT_WALLET_PATH` se não definido.
+Em modo live, o bot falha cedo se o backend selecionado não oferecer as capabilities obrigatórias.
 
 ---
 
-### Jupiter Perpetuals — `jupiter`
+## Backends Registrados Atualmente
 
-**Status: Apenas metadados estáticos — execução live não implementada**
+| Backend | Papel pretendido | Prontidão live nesta codebase |
+|---------|------------------|-------------------------------|
+| `drift` | Backend de perps na Solana | Capaz de produção |
+| `valiant` | Backend compatível com API Hyperliquid via Valiant | Capaz de produção, protegido por gate explícito de auto-trading |
+| `jupiter` | Metadados estáticos / backend futuro de execução | Não pronto para live |
+| `phoenix` | Metadados estáticos / backend futuro de execução | Não pronto para live |
 
-| Capability | Suportado |
-|-----------|----------|
-| Ativos suportados | ✅ (dados estáticos) |
-| Limites de mercado | ✅ (dados estáticos) |
-| Alavancagem máxima | ✅ (dados estáticos) |
-| Abrir trade | ❌ Não implementado |
-| Fechar trade | ❌ Não implementado |
-| Redução parcial | ❌ Não implementado |
-| Atualizar TP/SL | ❌ Não implementado |
-| Monitoramento de posições | ❌ Não implementado |
-
-Definir `PERP_OPEN_VENUE=jupiter` vai gerar erro quando o bot tentar execução live. Use `PAPER_TRADING=true` para rodar modo paper com metadados estáticos do Jupiter.
-
-**Ativos suportados (estáticos):** SOL, BTC, ETH, WIF, BONK, JUP
-
-**Carteira:** `WALLET_JUPITER_PATH` necessário para uso live (ainda não implementado).
+Use a tabela como retrato do estado da codebase, não como recomendação. Sempre rode paper mode e preflight específico do backend antes de operar live.
 
 ---
 
-### Phoenix Perps — `phoenix`
+## Modelo de Configuração
 
-**Status: Apenas metadados estáticos — execução live não implementada**
+Configurações genéricas no `.env`:
 
-| Capability | Suportado |
-|-----------|----------|
-| Ativos suportados | ✅ (dados estáticos) |
-| Limites de mercado | ✅ (dados estáticos) |
-| Alavancagem máxima | ✅ (dados estáticos) |
-| Toda execução | ❌ Não implementado |
-| Monitoramento de posições | ❌ Não implementado |
-
-Definir `PERP_OPEN_VENUE=phoenix` vai gerar erro na execução live.
-
-**Ativos suportados (estáticos):** SOL, BTC, ETH
-
-**Carteira:** `WALLET_PHOENIX_PATH` necessário para uso live (ainda não implementado).
-
----
-
-## Política de capabilities em modo paper
-
-Em modo paper, o bot só exige **capabilities de dados estáticos** do venue:
-- `supportsSupportedAssets`
-- `supportsMarketLimits`
-- `supportsPlatformMaxLeverage`
-
-Todas as chamadas de execução são interceptadas pelo paper engine antes de qualquer verificação de capability para operações de execução. Isso significa que o modo paper funciona com qualquer um dos três venues.
-
----
-
-## Carteiras por venue
-
-Configure no arquivo de segredos (nunca no `.env`):
+File: `backend/.env`
 
 ```env
+PERP_OPEN_VENUE=drift
+PAPER_TRADING=true
+```
+
+Segredos brutos nunca devem ir no `.env`. Use o arquivo de segredos e variáveis `*_PATH`:
+
+File: `/opt/bot/secrets/bot-secrets.env`
+
+```env
+BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
 WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
-WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
-WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_ACCOUNT_ADDRESS=0xSeuEnderecoPublico
 ```
 
-Se `WALLET_DRIFT_PATH` não estiver definido, o Drift usa `BOT_WALLET_PATH` como fallback. Jupiter e Phoenix exigem suas próprias carteiras quando a execução live for habilitada.
+URLs não secretas específicas de backend podem ficar no `.env`:
 
-Cada arquivo de carteira deve ter `chmod 600`, de propriedade do usuário bot.
+File: `backend/.env`
+
+```env
+JUPITER_API_BASE_URL=https://api.jup.ag
+PHOENIX_API_BASE_URL=https://api.phoenix.trade
+VALIANT_BASE_URL=https://api.hyperliquid.xyz
+```
+
+---
+
+## Modo Paper
+
+O modo paper entende o backend ativo, mas não chama adapters de execução live. O paper engine intercepta a execução enquanto ainda usa metadados do backend para verificações de risco:
+
+- ativos suportados
+- caps de alavancagem da plataforma
+- mínimos de mercado e step sizes
+
+Isso permite testar parser de sinais, risk checks, dashboard e controles manuais sem enviar ordens reais.
+
+---
+
+## Checklist Para Live
+
+Antes de definir `PAPER_TRADING=false`:
+
+- Confirme que o backend selecionado está live-ready nesta codebase.
+- Configure arquivos de wallet/chave fora do repositório.
+- Use `chmod 600` em todos os arquivos de wallet/chave/sessão.
+- Rode qualquer script de preflight específico disponível em `backend/scripts/`.
+- Comece com `POSITION_SIZE_PCT=0.01`.
+- Mantenha o auto-trading global desligado até um teste live manual pequeno funcionar.
+- Ative gates específicos de backend apenas após preflight e teste manual.
+
+Gate explícito atual:
+
+File: `backend/.env`
+
+```env
+ENABLE_AUTO_TRADING_VALIANT=false
+```
+
+---
+
+## Limitações Conhecidas
+
+- O backend ativo é selecionado na inicialização e não pode ser alterado em runtime.
+- Posições simultâneas no mesmo ativo em múltiplos backends ainda não são suportadas.
+- O tracking de posições ainda é efetivamente por ativo em vários fluxos.
+- Algumas ações amplas, como `close_all`, dependem da capability do backend e podem ser recusadas de forma segura.
+
+---
+
+## Nota Para Desenvolvedores
+
+Para adicionar um novo backend de forma incremental:
+
+1. Crie um manifest em `backend/src/venues/manifests/`.
+2. Registre em `backend/src/venues/registerBuiltInVenues.js`.
+3. Implemente adapters de execução e monitoramento.
+4. Adicione segredos exigidos em `validateEnv.js` usando o padrão `*_PATH`.
+5. Documente apenas a configuração genérica mais as notas específicas mínimas necessárias para operar com segurança.

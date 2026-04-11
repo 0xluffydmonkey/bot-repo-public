@@ -21,6 +21,8 @@ cd bot-repo/backend
 npm install
 ```
 
+Directory: `backend/`
+
 ---
 
 ## 2. Create `.env` (non-secret config)
@@ -31,6 +33,8 @@ cp .env.example .env
 
 Edit `.env` to configure trading parameters and activate modules. Key settings:
 
+File: `backend/.env`
+
 ```env
 # Trading behavior
 PAPER_TRADING=true              # always start with paper mode locally
@@ -38,7 +42,7 @@ POSITION_SIZE_PCT=0.01          # start small (1%)
 TELEGRAM_CHANNEL_ID=-100...     # channel to monitor
 
 # Secret file paths (paths are non-secret, values are not)
-BOT_WALLET_PATH=/opt/bot/secrets/drift-bot-wallet.json
+BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
 TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt
 
 # Feature toggles — controls which modules start
@@ -64,27 +68,36 @@ chmod 600 /opt/bot/secrets/bot-secrets.env
 
 Fill in the secrets (real values, never committed to git):
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```bash
 nano /opt/bot/secrets/bot-secrets.env
 ```
 
 Minimum required content:
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=your_hash_here
 TELEGRAM_PHONE=+5511999999999
 ```
 
+Add backend-specific RPC/API credentials only when your selected backend requires them.
+
 For the Telegram control bot (only if `ENABLE_CONTROL_BOT=true`):
+
+File: `/opt/bot/secrets/bot-secrets.env`
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 TELEGRAM_CONTROL_ALLOWED_IDS=123456789,987654321
 ```
 
-**Multi-venue wallets** (optional — only needed if using Jupiter or Phoenix):
+**Backend wallet/key paths** (optional unless required by your selected backend):
+
+File: `/opt/bot/secrets/bot-secrets.env`
 
 ```env
 # Drift: if not set, falls back to BOT_WALLET_PATH automatically
@@ -95,6 +108,10 @@ WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
 
 # Required when PERP_OPEN_VENUE=phoenix
 WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+
+# Example for an agent-key backend
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
 ```
 
 ---
@@ -105,8 +122,8 @@ WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 
 ```bash
 # Generate a new wallet (or copy an existing one)
-solana-keygen new -o /opt/bot/secrets/drift-bot-wallet.json
-chmod 600 /opt/bot/secrets/drift-bot-wallet.json
+solana-keygen new -o /opt/bot/secrets/bot-wallet.json
+chmod 600 /opt/bot/secrets/bot-wallet.json
 ```
 
 **Telegram session** (generated on first run — see step 5 below).
@@ -142,6 +159,8 @@ The start command is always the same:
 
 Which modules run is decided by your `.env`:
 
+File: `backend/.env`
+
 ```env
 ENABLE_SIGNAL_LISTENER=true   # run the Telegram signal listener
 ENABLE_WEB=true               # run the web dashboard
@@ -164,8 +183,8 @@ Expected log output:
 [START] Loading secrets from: /opt/bot/secrets/bot-secrets.env
 [START] node: /home/user/.nvm/versions/node/v20.x.x/bin/node (v20.x.x)
 [START] Backend: /path/to/backend
-[CONFIG] Secret loaded: SOLANA_RPC_URL ✓
 [CONFIG] Secret loaded: TELEGRAM_API_ID ✓
+[CONFIG] Secret loaded: <backend-specific credentials> ✓
 [TELEGRAM] Authenticated successfully
 [BOT] Active — waiting for signals
 [WEB] Dashboard available at http://localhost:3000   # if ENABLE_WEB=true
@@ -188,8 +207,8 @@ nvm use 20
 which node   # confirm it's in PATH
 ```
 
-**"Missing required secret: SOLANA_RPC_URL"**
-The secrets file exists but a required value is missing or still set to `SET_IN_SERVER_ONLY`.
+**"Missing required secret: SOLANA_RPC_URL" or another backend credential**
+The secrets file exists but a required value for the selected module/backend is missing or still set to `SET_IN_SERVER_ONLY`.
 Edit `/opt/bot/secrets/bot-secrets.env` and fill in the real value.
 
 **Telegram authentication loops**

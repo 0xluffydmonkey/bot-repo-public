@@ -1,8 +1,12 @@
 // src/venues/manifests/valiantVenue.js
-// Valiant venue manifest — Phase 1 capabilities only.
+// Valiant venue manifest — production-capable with explicit gating.
 //
-// Deferred to Phase 2:
-//   supportsCloseAll, supportsReduceTrade, supportsUpdateTpSl
+// Auto-trading gating:
+//   Signal auto-execution requires ENABLE_AUTO_TRADING_VALIANT=true in env.
+//   Default is blocked. This prevents accidental live execution before the
+//   operator confirms the venue is calibrated and monitored.
+//
+// closeAllTrades: implemented as a sequential per-asset loop (no atomic endpoint).
 
 import { valiantAdapter } from '../../trading/adapters/valiantAdapter.js';
 import { valiantMonitoringAdapter } from '../../monitor/venues/valiantMonitoring.js';
@@ -17,10 +21,10 @@ export const valiantVenueManifest = {
   capabilities: {
     supportsOpenTrade:           true,
     supportsCloseTrade:          true,
-    supportsCloseAll:            false,
-    supportsReduceTrade:         false,
+    supportsCloseAll:            true,
+    supportsReduceTrade:         true,
     supportsMonitoring:          true,
-    supportsUpdateTpSl:          false,
+    supportsUpdateTpSl:          true,
     supportsAccountSnapshot:     true,
     supportsMarketLimits:        true,
     supportsBalance:             true,

@@ -7,8 +7,8 @@
 ## O que você precisa
 
 - Um computador com Linux ou macOS (Windows via WSL2 também funciona)
-- Um arquivo de carteira Solana (`drift-bot-wallet.json`)
-- Um endpoint RPC da Solana — obtenha um gratuito no [Helius](https://helius.dev) ou [QuickNode](https://quicknode.com)
+- Arquivos de carteira/chave exigidos pelo backend de trading escolhido
+- Endpoints RPC/API exigidos pelo backend escolhido
 - Credenciais da API do Telegram (gratuito — leva 2 minutos)
 - O ID do canal do Telegram que você quer monitorar
 
@@ -55,25 +55,27 @@ chmod 700 /opt/bot/secrets
 
 ---
 
-## Passo 4 — Adicionar sua carteira
+## Passo 4 — Adicionar carteiras/chaves
 
-Copie uma carteira existente ou gere uma nova:
+Copie ou gere os arquivos de carteira/chave exigidos pelo backend escolhido. Guarde tudo fora do repositório e restrinja permissões.
+
+Exemplo para um backend com keypair Solana:
 
 ```bash
 # Gerar uma nova carteira
-solana-keygen new -o /opt/bot/secrets/drift-bot-wallet.json
+solana-keygen new -o /opt/bot/secrets/bot-wallet.json
 
 # OU copiar uma carteira existente
-cp /caminho/para/sua/wallet.json /opt/bot/secrets/drift-bot-wallet.json
+cp /caminho/para/sua/wallet.json /opt/bot/secrets/bot-wallet.json
 ```
 
 Restrinja as permissões:
 
 ```bash
-chmod 600 /opt/bot/secrets/drift-bot-wallet.json
+chmod 600 /opt/bot/secrets/bot-wallet.json
 ```
 
-> Deposite USDC nessa carteira para operar e ~0,1 SOL para taxas de rede.
+> Deposite o colateral e o ativo de taxas/gas exigidos pelo backend que você vai usar.
 
 ---
 
@@ -87,12 +89,15 @@ nano /opt/bot/secrets/bot-secrets.env
 
 Cole e preencha com seus valores reais:
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=SUA_CHAVE
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=seu_hash_aqui
 TELEGRAM_PHONE=+5511999999999
 ```
+
+Adicione segredos específicos do backend apenas se o backend selecionado exigir, por exemplo RPC, caminho de wallet ou caminho de agent key. Veja [configuracao.md](configuracao.md).
 
 Salve e feche (`Ctrl+X`, depois `Y`, depois `Enter` no nano).
 
@@ -106,6 +111,8 @@ nano backend/.env
 ```
 
 O mínimo que você precisa definir:
+
+File: `backend/.env`
 
 ```env
 # O canal do Telegram para monitorar os sinais

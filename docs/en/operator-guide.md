@@ -52,6 +52,8 @@ Both surfaces update in real time.
 
 All write endpoints require authentication. Set `WEB_API_TOKEN` in your secrets file to protect remote access. Without it, only localhost connections are allowed.
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 Pass the token as header: `X-API-Token: <your-token>`
 
 ```
@@ -78,11 +80,17 @@ POST /api/reduce        { asset, reducePercent }   → 1–95% only
 
 1. Create a bot via `@BotFather` → `/newbot`
 2. Add to secrets file:
+
+   File: `/opt/bot/secrets/bot-secrets.env`
+
    ```env
    TELEGRAM_BOT_TOKEN=123456789:ABCdef...
    TELEGRAM_CONTROL_ALLOWED_IDS=123456789   # your Telegram user ID
    ```
 3. Enable in `.env`:
+
+   File: `backend/.env`
+
    ```env
    ENABLE_CONTROL_BOT=true
    ```
@@ -306,6 +314,8 @@ The bot tracks open positions automatically and sends Telegram alerts when:
 
 Configure in `backend/.env`:
 
+File: `backend/.env`
+
 ```env
 ENABLE_POSITION_ALERTS=true
 POSITION_ALERT_PROFIT_PERCENT=10     # alert when PnL reaches +10%
@@ -315,6 +325,8 @@ TRAILING_STOP_ONLY_AFTER_PROFIT_PERCENT=3   # only trail after +3%
 ```
 
 Telegram alerts require `TELEGRAM_CHAT_ID` in the secrets file.
+
+File: `/opt/bot/secrets/bot-secrets.env`
 
 ---
 

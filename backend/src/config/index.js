@@ -61,9 +61,15 @@ export const config = {
     // session is NOT stored here — loaded via services/telegramSessionLoader.js
   },
 
-  // Solana
+  // Solana — only populated for Solana-based venues.
+  // Non-Solana venues (valiant, ...) set rpcUrl: null — never read in their execution path.
+  // validateEnv.js enforces this requirement before config is built.
   solana: {
-    rpcUrl: requireEnv('SOLANA_RPC_URL'),
+    rpcUrl: (() => {
+      const NON_SOLANA = new Set(['valiant']);
+      const venue = (process.env.PERP_OPEN_VENUE ?? 'drift').toLowerCase().trim();
+      return NON_SOLANA.has(venue) ? null : requireEnv('SOLANA_RPC_URL');
+    })(),
     // keypair is NOT stored here — loaded via services/walletLoader.js (BOT_WALLET_PATH)
   },
 
@@ -129,14 +135,14 @@ export const JUPITER_PERPS = {
   },
 };
 
-// ─── Valiant — Temporary live execution venue (Hyperliquid-compatible) ────────
+// ─── Valiant — Hyperliquid perps execution venue ──────────────────────────────
 //
-// ASSET_INDEX: integer market indices used in Valiant/Hyperliquid API orders.
-// These must match the actual market indices on your Valiant deployment.
-// To verify: POST /info { "type": "meta" } → universe[i].name maps i → symbol.
+// ASSET_INDEX: integer market indices used in Hyperliquid API orders.
+// Verify against the live universe: POST /info { "type": "meta" }
+//   → universe[i].name maps index i → symbol (use hyperliquidClient.fetchMeta())
 //
-// MARKET_LIMITS: conservative static minimums for Phase 1.
-// Replace with a live /info query if precision matters.
+// MARKET_LIMITS: conservative static minimums — sufficient for production.
+// Replace with a live /info query if tighter precision is needed.
 //
 // MAX_LEVERAGE_BY_ASSET: caps applied before forwarding leverage to the API.
 export const VALIANT_MARKETS = {

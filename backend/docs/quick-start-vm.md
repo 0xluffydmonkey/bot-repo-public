@@ -8,9 +8,9 @@ How to set up and run the bot on a production VM using systemd.
 
 - Ubuntu VM (user: `ubuntu`)
 - Node.js >= 18 installed (via nvm or apt)
-- Repository cloned at `~/v2-bot-repo/bot-repo`
+- Repository cloned on the VM
 - Secrets file at `/opt/bot/secrets/bot-secrets.env`
-- Non-secret config at `~/v2-bot-repo/bot-repo/backend/.env`
+- Non-secret config at `~/bot-repo/backend/.env`
 
 ---
 
@@ -39,8 +39,8 @@ node --version   # should be >= 18
 
 ```bash
 cd ~
-git clone git@github.com:YOUR_USER/bot-repo.git v2-bot-repo
-cd v2-bot-repo/bot-repo/backend
+git clone git@github.com:YOUR_USER/bot-repo.git bot-repo
+cd bot-repo/backend
 
 npm install
 
@@ -51,9 +51,9 @@ chmod +x start.sh
 **To update an existing clone:**
 
 ```bash
-cd ~/v2-bot-repo
+cd ~/bot-repo
 git pull
-cd bot-repo/backend
+cd backend
 npm install   # only if package.json changed
 ```
 
@@ -72,27 +72,36 @@ chmod 600 /opt/bot/secrets/bot-secrets.env
 
 Fill in the secrets:
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```bash
 nano /opt/bot/secrets/bot-secrets.env
 ```
 
 Required content:
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=your_hash_here
 TELEGRAM_PHONE=+5511999999999
 ```
 
+Add backend-specific RPC/API credentials only when your selected backend requires them.
+
 If `ENABLE_CONTROL_BOT=true`:
+
+File: `/opt/bot/secrets/bot-secrets.env`
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 TELEGRAM_CONTROL_ALLOWED_IDS=123456789
 ```
 
-**Multi-venue wallets** (optional — only needed if using Jupiter or Phoenix):
+**Backend wallet/key paths** (optional unless required by your selected backend):
+
+File: `/opt/bot/secrets/bot-secrets.env`
 
 ```env
 # Drift: if not set, falls back to BOT_WALLET_PATH automatically
@@ -103,14 +112,18 @@ WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
 
 # Required when PERP_OPEN_VENUE=phoenix
 WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+
+# Example for an agent-key backend
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
 ```
 
 Also place the wallet and Telegram session:
 
 ```bash
-# Copy wallet from local machine
-scp -i ~/.ssh/your-key drift-bot-wallet.json ubuntu@YOUR_VM_IP:/opt/bot/secrets/
-chmod 600 /opt/bot/secrets/drift-bot-wallet.json
+# Copy wallet/key files from local machine
+scp -i ~/.ssh/your-key bot-wallet.json ubuntu@YOUR_VM_IP:/opt/bot/secrets/
+chmod 600 /opt/bot/secrets/bot-wallet.json
 
 # Copy telegram session (after authenticating locally)
 scp -i ~/.ssh/your-key telegram_session.txt ubuntu@YOUR_VM_IP:/opt/bot/secrets/
@@ -122,18 +135,20 @@ chmod 600 /opt/bot/secrets/telegram_session.txt
 ## 4. Configure `.env`
 
 ```bash
-cp ~/v2-bot-repo/bot-repo/backend/.env.example ~/v2-bot-repo/bot-repo/backend/.env
-nano ~/v2-bot-repo/bot-repo/backend/.env
+cp ~/bot-repo/backend/.env.example ~/bot-repo/backend/.env
+nano ~/bot-repo/backend/.env
 ```
 
 Key settings for production:
+
+File: `backend/.env`
 
 ```env
 # Trading
 PAPER_TRADING=false
 POSITION_SIZE_PCT=0.05
 TELEGRAM_CHANNEL_ID=-1001234567890
-BOT_WALLET_PATH=/opt/bot/secrets/drift-bot-wallet.json
+BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
 TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt
 
 # Feature toggles — controls which modules start when ./start.sh is called
@@ -150,7 +165,7 @@ WEB_PORT=3000
 Run the bot manually to confirm secrets load and Telegram authenticates:
 
 ```bash
-cd ~/v2-bot-repo/bot-repo/backend
+cd ~/bot-repo/backend
 ./start.sh
 ```
 
@@ -158,8 +173,8 @@ Expected output:
 
 ```
 [START] Loading secrets from: /opt/bot/secrets/bot-secrets.env
-[CONFIG] Secret loaded: SOLANA_RPC_URL ✓
 [CONFIG] Secret loaded: TELEGRAM_API_ID ✓
+[CONFIG] Secret loaded: <backend-specific credentials> ✓
 [TELEGRAM] Authenticated successfully
 [BOT] Active — waiting for signals
 [WEB] Dashboard available at http://localhost:3000
@@ -172,7 +187,7 @@ Press `Ctrl+C` to stop once verified.
 ## 6. Install systemd service
 
 ```bash
-sudo cp ~/v2-bot-repo/bot-repo/backend/deploy/systemd/bot-trader.service /etc/systemd/system/
+sudo cp ~/bot-repo/backend/deploy/systemd/bot-trader.service /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable bot-trader
@@ -188,12 +203,18 @@ sudo systemctl edit bot-trader
 
 Add:
 
+File: `/etc/systemd/system/bot-trader.service.d/override.conf`
+
 ```ini
 [Service]
 Environment=PAPER_TRADING=true
 ```
 
 **Enable Telegram control bot:** set `ENABLE_CONTROL_BOT=true` in `.env` and ensure the secrets file includes `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CONTROL_ALLOWED_IDS`. Restart the service after the change:
+
+Files:
+- `backend/.env`
+- `/opt/bot/secrets/bot-secrets.env`
 
 ```bash
 sudo systemctl restart bot-trader
@@ -247,9 +268,9 @@ journalctl -u bot-trader -f | grep '\[BOT\]'
 ## 9. Update the bot
 
 ```bash
-cd ~/v2-bot-repo
+cd ~/bot-repo
 git pull
-cd bot-repo/backend
+cd backend
 npm install   # only if package.json changed
 
 sudo systemctl restart bot-trader
@@ -290,7 +311,7 @@ Common causes:
 **Test start.sh manually as the service user**
 
 ```bash
-sudo -u ubuntu bash ~/v2-bot-repo/bot-repo/backend/start.sh
+sudo -u ubuntu bash ~/bot-repo/backend/start.sh
 # Ctrl+C to exit
 ```
 

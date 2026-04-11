@@ -1,148 +1,133 @@
-# Venue Model
+# Backends / Venues
 
-The bot uses a multi-venue architecture. The active venue is configured at startup and cannot be changed at runtime.
+The bot is multi-backend. A backend, also called a venue in the code, is the trading integration used for live execution, account snapshots, market limits, and position monitoring.
 
----
+The active backend is selected at startup:
 
-## How venues work
-
-Every trade execution call routes through `PerpExecutionService`, which selects the active venue from the registry and delegates to the appropriate adapter.
-
-The active venue is set by:
+File: `backend/.env`
 
 ```env
-PERP_OPEN_VENUE=drift   # drift | jupiter | phoenix
+PERP_OPEN_VENUE=drift
 ```
 
-This variable is read once at startup. `state.status.activeVenue` shows the resolved venue name — visible in the Telegram status screen and dashboard.
+This value is read once when the process starts. To change backend, edit `backend/.env` and restart the bot.
 
 ---
 
-## Venue registry
+## How Backend Selection Works
 
-Each venue has a **manifest** declaring its capabilities. Capabilities control which operations the bot is allowed to attempt.
+All execution flows go through `PerpExecutionService`. The service reads the active backend from the venue registry and routes the operation to the matching adapter.
 
-In paper mode, the paper engine intercepts all execution calls — the live adapter is never reached.
+Each backend declares capabilities such as:
 
----
+- opening and closing trades
+- closing all positions
+- partial reduce
+- TP/SL updates
+- balance and account snapshot
+- position monitoring
+- supported assets, market limits, and max leverage
 
-## Supported venues
-
-### Drift Protocol — `drift`
-
-**Status: Production-ready**
-
-| Capability | Supported |
-|-----------|-----------|
-| Open trade | ✅ |
-| Close trade | ✅ |
-| Close all | ✅ |
-| Partial reduce | ✅ |
-| Update TP/SL | ✅ |
-| Balance query | ✅ |
-| Account snapshot | ✅ |
-| Supported assets | ✅ |
-| Market limits | ✅ |
-| Platform max leverage | ✅ |
-| Position monitoring | ✅ |
-
-**Supported assets:**
-
-| Asset | Market Index |
-|-------|-------------|
-| SOL | 0 |
-| BTC | 1 |
-| ETH | 2 |
-| APT | 3 |
-| 1MBONK / BONK | 4 |
-| POL / MATIC | 5 |
-| ARB | 6 |
-| DOGE | 7 |
-| BNB | 8 |
-| SUI | 9 |
-| WIF | 23 |
-| JUP | 24 |
-
-**Wallet:** uses `WALLET_DRIFT_PATH` → falls back to `BOT_WALLET_PATH` if not set.
+In live mode, the bot fails fast if the selected backend does not provide the required live capabilities.
 
 ---
 
-### Jupiter Perpetuals — `jupiter`
+## Current Registered Backends
 
-**Status: Static metadata only — live execution not implemented**
+| Backend | Intended role | Live readiness in this codebase |
+|---------|---------------|----------------------------------|
+| `drift` | Solana perps backend | Production-capable |
+| `valiant` | Valiant-compatible Hyperliquid API backend | Production-capable, guarded by explicit auto-trading gate |
+| `jupiter` | Static metadata / future execution backend | Not live-ready |
+| `phoenix` | Static metadata / future execution backend | Not live-ready |
 
-| Capability | Supported |
-|-----------|-----------|
-| Supported assets | ✅ (static data) |
-| Market limits | ✅ (static data) |
-| Platform max leverage | ✅ (static data) |
-| Open trade | ❌ Not implemented |
-| Close trade | ❌ Not implemented |
-| Partial reduce | ❌ Not implemented |
-| Update TP/SL | ❌ Not implemented |
-| Position monitoring | ❌ Not implemented |
-
-Setting `PERP_OPEN_VENUE=jupiter` will error when the bot attempts live execution. Use `PAPER_TRADING=true` to run paper mode against Jupiter static metadata.
-
-**Supported assets (static):** SOL, BTC, ETH, WIF, BONK, JUP
-
-**Wallet:** `WALLET_JUPITER_PATH` required for live use (not yet implemented).
+Use the table as a codebase status snapshot, not a recommendation. Always run paper mode and backend-specific preflight before live trading.
 
 ---
 
-### Phoenix Perps — `phoenix`
+## Configuration Model
 
-**Status: Static metadata only — live execution not implemented**
+Generic `.env` settings:
 
-| Capability | Supported |
-|-----------|-----------|
-| Supported assets | ✅ (static data) |
-| Market limits | ✅ (static data) |
-| Platform max leverage | ✅ (static data) |
-| All execution | ❌ Not implemented |
-| Position monitoring | ❌ Not implemented |
-
-Setting `PERP_OPEN_VENUE=phoenix` will error when the bot attempts live execution.
-
-**Supported assets (static):** SOL, BTC, ETH
-
-**Wallet:** `WALLET_PHOENIX_PATH` required for live use (not yet implemented).
-
----
-
-## Capability policy in paper mode
-
-In paper mode, the bot only requires **static data capabilities** from the venue:
-- `supportsSupportedAssets`
-- `supportsMarketLimits`
-- `supportsPlatformMaxLeverage`
-
-All execution calls are intercepted by the paper engine before any capability check for execution operations. This means paper mode works with any of the three venues.
-
----
-
-## Per-venue wallets
-
-Configure in your secrets file (never in `.env`):
+File: `backend/.env`
 
 ```env
+PERP_OPEN_VENUE=drift
+PAPER_TRADING=true
+```
+
+Raw secrets must never go in `.env`. Use the secrets file and `*_PATH` variables:
+
+File: `/opt/bot/secrets/bot-secrets.env`
+
+```env
+BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
 WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
-WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
-WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
 ```
 
-If `WALLET_DRIFT_PATH` is not set, Drift falls back to `BOT_WALLET_PATH`. Jupiter and Phoenix require their own wallet paths when their live execution is enabled.
+Backend-specific non-secret URLs may live in `.env`:
 
-Each wallet file must have `chmod 600`, owned by the bot user.
+File: `backend/.env`
+
+```env
+JUPITER_API_BASE_URL=https://api.jup.ag
+PHOENIX_API_BASE_URL=https://api.phoenix.trade
+VALIANT_BASE_URL=https://api.hyperliquid.xyz
+```
 
 ---
 
-## Adding a new venue (developer reference)
+## Paper Mode
 
-1. Create a manifest in `backend/src/venues/manifests/` declaring capabilities and adapters
-2. Register it in `backend/src/venues/registerBuiltInVenues.js`
-3. Implement the execution adapter in `backend/src/trading/adapters/`
-4. Implement the monitoring adapter if needed
-5. Set `PERP_OPEN_VENUE=<name>` in `.env`
+Paper mode is backend-aware but does not call live execution adapters. The paper engine intercepts execution while still using backend metadata for risk checks:
 
-The paper engine handles paper mode automatically — no changes needed in the new venue's adapter.
+- supported assets
+- platform leverage caps
+- market minimums and step sizes
+
+This lets you test signal parsing, risk checks, dashboard behavior, and manual controls without submitting real orders.
+
+---
+
+## Live Mode Checklist
+
+Before setting `PAPER_TRADING=false`:
+
+- Confirm the selected backend is live-ready in this codebase.
+- Configure required wallet/key files outside the repository.
+- Use `chmod 600` on all wallet/key/session files.
+- Run any backend-specific preflight script available in `backend/scripts/`.
+- Start with `POSITION_SIZE_PCT=0.01`.
+- Keep global auto-trading off until a small manual live test succeeds.
+- Enable backend-specific auto-trading gates only after preflight and manual testing.
+
+Current explicit backend gate:
+
+File: `backend/.env`
+
+```env
+ENABLE_AUTO_TRADING_VALIANT=false
+```
+
+---
+
+## Known Limitations
+
+- The active backend is selected at startup and cannot be changed at runtime.
+- Same-asset simultaneous positions across multiple backends are not supported yet.
+- Position tracking is still effectively keyed by asset in several flows.
+- Some broad actions such as `close_all` depend on backend capability and may be refused safely.
+
+---
+
+## Developer Note
+
+To add a new backend incrementally:
+
+1. Create a manifest in `backend/src/venues/manifests/`.
+2. Register it in `backend/src/venues/registerBuiltInVenues.js`.
+3. Implement execution and monitoring adapters.
+4. Add required secrets to `validateEnv.js` using the `*_PATH` pattern.
+5. Document only the generic setup plus the minimum backend-specific notes needed to operate safely.

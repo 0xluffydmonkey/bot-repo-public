@@ -7,8 +7,8 @@
 ## What you need
 
 - A computer running Linux or macOS (Windows via WSL2 works too)
-- A Solana wallet keypair file (`drift-bot-wallet.json`)
-- A Solana RPC endpoint — get a free one at [Helius](https://helius.dev) or [QuickNode](https://quicknode.com)
+- Wallet/key files required by your selected trading backend
+- RPC/API endpoints required by your selected backend
 - Telegram API credentials (free — takes 2 minutes to get)
 - The ID of the Telegram channel you want to monitor
 
@@ -55,25 +55,27 @@ chmod 700 /opt/bot/secrets
 
 ---
 
-## Step 4 — Add your wallet
+## Step 4 — Add wallet/key files
 
-Copy your existing wallet keypair, or generate a new one:
+Copy or generate the wallet/key files required by your selected backend. Store them outside the repository and restrict permissions.
+
+Example for a Solana keypair backend:
 
 ```bash
 # Generate a new wallet
-solana-keygen new -o /opt/bot/secrets/drift-bot-wallet.json
+solana-keygen new -o /opt/bot/secrets/bot-wallet.json
 
 # OR copy an existing wallet
-cp /path/to/your/wallet.json /opt/bot/secrets/drift-bot-wallet.json
+cp /path/to/your/wallet.json /opt/bot/secrets/bot-wallet.json
 ```
 
 Restrict permissions:
 
 ```bash
-chmod 600 /opt/bot/secrets/drift-bot-wallet.json
+chmod 600 /opt/bot/secrets/bot-wallet.json
 ```
 
-> Fund this wallet with USDC for trading and ~0.1 SOL for gas fees.
+> Fund the account with the collateral and fee/gas asset required by the backend you will use.
 
 ---
 
@@ -87,12 +89,15 @@ nano /opt/bot/secrets/bot-secrets.env
 
 Paste and fill in these values:
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```env
-SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 TELEGRAM_API_ID=12345678
 TELEGRAM_API_HASH=your_hash_here
 TELEGRAM_PHONE=+15551234567
 ```
+
+Add backend-specific secrets only if your selected backend requires them, for example an RPC endpoint, wallet path, or agent-key path. See [configuration.md](configuration.md).
 
 Save and close (`Ctrl+X`, then `Y`, then `Enter` in nano).
 
@@ -106,6 +111,8 @@ nano backend/.env
 ```
 
 The minimum you need to set:
+
+File: `backend/.env`
 
 ```env
 TELEGRAM_CHANNEL_ID=-1001234567890   # the channel to monitor

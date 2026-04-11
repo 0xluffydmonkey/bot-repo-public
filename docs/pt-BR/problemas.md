@@ -22,9 +22,9 @@ nano /opt/bot/secrets/bot-secrets.env
 
 ---
 
-**"Missing required secret: SOLANA_RPC_URL"**
+**"Missing required secret: SOLANA_RPC_URL" ou outra credencial de backend**
 
-O arquivo existe mas ainda tem um valor de placeholder (`SET_IN_SERVER_ONLY`). Abra o arquivo e substitua pelo valor real:
+O arquivo existe, mas o módulo/backend selecionado está sem um valor obrigatório ou ainda tem placeholder (`SET_IN_SERVER_ONLY`). Abra o arquivo de segredos e substitua placeholders por valores reais:
 
 ```bash
 nano /opt/bot/secrets/bot-secrets.env
@@ -166,27 +166,50 @@ Verifique também se o intake de sinais está ativo (veja acima).
 
 ---
 
-## Problemas com venue
+## Problemas com backend / venue
 
-**"Venue 'jupiter' does not support openTrade"**
+**"Venue '<nome>' does not support openTrade"**
 
-A execução live do Jupiter e Phoenix ainda não está implementada. Esses venues só suportam metadados estáticos (para validação de risco em modo paper). Solução:
-- Defina `PERP_OPEN_VENUE=drift` para trading real
-- Defina `PAPER_TRADING=true` para modo paper com qualquer venue
+O backend selecionado está registrado, mas não expõe capability de execução live nesta codebase. Solução:
+- escolha um backend live-ready em `PERP_OPEN_VENUE`
+- mantenha `PAPER_TRADING=true` enquanto testa metadados estáticos e validação de risco
 
 ---
 
 **"Execution adapter not registered for venue"**
 
-O valor de `PERP_OPEN_VENUE` não corresponde a nenhum venue registrado. Valores permitidos: `drift`, `jupiter`, `phoenix`. Verifique seu `.env` por erros de digitação.
+O valor de `PERP_OPEN_VENUE` não corresponde a nenhum backend/venue registrado. Valores registrados atualmente incluem `drift`, `jupiter`, `phoenix` e `valiant`. Verifique erros de digitação no `.env` e confirme se o venue está registrado na codebase.
 
 ---
 
-**"Wallet not configured for venue"**
+**"Wallet/key not configured for venue"**
 
-Ao usar Jupiter ou Phoenix (live), o caminho da carteira correspondente deve estar no arquivo de segredos:
-- Jupiter: `WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json`
-- Phoenix: `WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json`
+O backend selecionado exige uma wallet ou chave de assinatura que está faltando no arquivo de segredos. Use o modelo `*_PATH`:
+
+File: `/opt/bot/secrets/bot-secrets.env`
+
+```env
+WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
+WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
+WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
+VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+```
+
+Nunca coloque private keys brutas no `.env` ou em `bot-secrets.env`.
+
+---
+
+**Auto-trading está ON globalmente, mas ordens automáticas live continuam bloqueadas**
+
+Alguns backends têm um gate explícito extra de inicialização para evitar execução automática acidental. Verifique flags específicas como:
+
+File: `backend/.env`
+
+```env
+ENABLE_AUTO_TRADING_VALIANT=true
+```
+
+Ative isso apenas depois de paper testing, preflight e um pequeno teste live manual.
 
 ---
 
@@ -204,6 +227,8 @@ O dashboard atualiza via WebSocket. Se a conexão caiu:
 
 `WEB_API_TOKEN` está definido no arquivo de segredos mas você não está enviando no header da requisição.
 
+File: `/opt/bot/secrets/bot-secrets.env`
+
 ```bash
 curl -X POST http://localhost:3000/api/pause \
   -H "X-API-Token: SEU_TOKEN"
@@ -214,7 +239,7 @@ curl -X POST http://localhost:3000/api/pause \
 **API REST retorna 403**
 
 `WEB_API_TOKEN` não está definido e você está conectando de um endereço não-localhost. Solução:
-- Defina `WEB_API_TOKEN` no arquivo de segredos para acesso remoto
+- Defina `WEB_API_TOKEN` no arquivo de segredos para acesso remoto: `/opt/bot/secrets/bot-secrets.env`
 - Conecte apenas de localhost
 
 ---

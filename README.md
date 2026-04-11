@@ -2,7 +2,7 @@
 
 > **Leia em Português:** [README.pt-BR.md](README.pt-BR.md)
 
-Algorithmic trading bot that monitors a private Telegram channel for trade signals and executes them automatically on [Drift Protocol](https://drift.trade/) (Solana perpetuals).
+Algorithmic trading bot platform that monitors a private Telegram channel for trade signals and can execute perpetual trades through a configured backend/venue.
 
 Supports paper trading, manual position management, real-time dashboard, Telegram control bot, and multi-venue architecture.
 
@@ -28,7 +28,7 @@ Before running `./start.sh` for the first time:
 - [ ] `npm install` run inside `backend/`
 - [ ] `backend/.env` created from `backend/.env.example`
 - [ ] Secrets file created at `/opt/bot/secrets/bot-secrets.env`
-- [ ] Wallet keypair at `/opt/bot/secrets/drift-bot-wallet.json` (set as `BOT_WALLET_PATH`)
+- [ ] Required wallet/key files stored outside the repo and referenced by `*_PATH` variables
 - [ ] `chmod +x start.sh stop.sh status.sh`
 
 See [docs/en/installation.md](docs/en/installation.md) for step-by-step instructions.
@@ -38,6 +38,8 @@ See [docs/en/installation.md](docs/en/installation.md) for step-by-step instruct
 ## Safe Mode
 
 Always start in paper mode first. Set this in `backend/.env`:
+
+File: `backend/.env`
 
 ```env
 PAPER_TRADING=true
@@ -64,7 +66,7 @@ See [docs/en/paper-mode.md](docs/en/paper-mode.md) for full paper vs live behavi
 1. Monitors a private Telegram channel for formatted trade signals
 2. Parses signals: asset, direction, entry price, TP, SL, leverage
 3. Validates each signal through a 7-layer risk manager (leverage cap, R:R, balance, exposure, step size)
-4. Executes on-chain perpetuals via the configured venue (default: Drift Protocol)
+4. Executes perpetual trades via the configured venue/backend when live mode is enabled
 5. Tracks open positions and sends PnL alerts via Telegram
 6. Accepts manual trading commands (open, close, reduce, TP/SL) from dashboard and Telegram
 
@@ -90,6 +92,7 @@ Operational controls (changeable at runtime):
 ## Feature Toggles
 
 ```env
+# File: backend/.env
 ENABLE_SIGNAL_LISTENER=true   # Telegram MTProto signal listener
 ENABLE_WEB=true               # web dashboard at http://localhost:3000
 ENABLE_CONTROL_BOT=false      # Telegram bot for remote control
@@ -105,7 +108,7 @@ ENABLE_CONTROL_BOT=false      # Telegram bot for remote control
 | [Configuration](docs/en/configuration.md) | All settings, secrets, toggles |
 | [Running](docs/en/running.md) | Start, stop, first run |
 | [Paper Mode](docs/en/paper-mode.md) | Paper vs live behavior |
-| [Venues](docs/en/venues.md) | Venue model, support status |
+| [Backends / Venues](docs/en/venues.md) | Generic backend selection and support status |
 | [Operator Guide](docs/en/operator-guide.md) | Dashboard, Telegram, manual trading, operational controls |
 | [Close Policy](docs/en/close-policy.md) | Venue resolution rules for close operations |
 | [Systemd](docs/en/systemd.md) | Auto-start on server |
@@ -117,6 +120,6 @@ ENABLE_CONTROL_BOT=false      # Telegram bot for remote control
 
 - Leverage can cause full position liquidation
 - Start with `POSITION_SIZE_PCT=0.01` (1%) and paper mode for at least 24h
-- Keep SOL in the wallet for gas fees (~0.1 SOL)
+- Keep the required gas/fee asset available for your selected backend
 - Never invest more than you can afford to lose
 - Signal quality determines trade quality — you are responsible for your signal source

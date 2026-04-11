@@ -60,8 +60,8 @@ async function startOptionalServices() {
 function printBanner() {
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
-║       🚀 SOLANA PERPS BOT — Drift Protocol v2               ║
-║       Telegram → Parser → Risk → Drift Execute              ║
+║       🚀 SOLANA PERPS BOT — Multi-Venue v3                  ║
+║       Telegram → Parser → Risk Manager → Execute            ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Modo:      ${
     config.trading.paperMode
@@ -80,6 +80,28 @@ function printBanner() {
       `⚠️  ATENÇÃO: MODO LIVE ATIVO — ordens reais serão executadas via ${liveVenue}!\n`,
     );
   }
+}
+
+// ─── Per-venue auto-trading gate ──────────────────────────────────────────────
+//
+// Venues listed in VENUE_EXPLICIT_ENABLE_FLAGS require their own env flag to be
+// set before signal auto-execution is permitted.
+// This gate is SEPARATE from state.status.autoTrading (the global on/off switch).
+//
+// Why: a newly onboarded venue should never execute trades silently just because
+// global autoTrading is true. The operator must explicitly confirm the venue is
+// calibrated, monitored, and ready for live signal execution.
+//
+// ADDING A NEW GATED VENUE:
+//   Add: 'my_venue': 'ENABLE_AUTO_TRADING_MY_VENUE' to VENUE_EXPLICIT_ENABLE_FLAGS.
+//   Document the env var in .env with ENABLE_AUTO_TRADING_MY_VENUE=false comment.
+function isVenueAutoTradingAllowed(venue) {
+  const VENUE_EXPLICIT_ENABLE_FLAGS = {
+    valiant: 'ENABLE_AUTO_TRADING_VALIANT',
+  };
+  const envFlag = VENUE_EXPLICIT_ENABLE_FLAGS[venue];
+  if (!envFlag) return true; // venue not gated — inherits global autoTrading flag
+  return process.env[envFlag] === 'true';
 }
 
 // ─── Handler de sinais ────────────────────────────────────────────────────────
@@ -126,11 +148,25 @@ async function handleSignalMessage(text, meta = {}) {
     return;
   }
 
-  // Checar auto-trading
+  // Checar auto-trading (global flag)
   if (!state.status.autoTrading) {
     logger.warn(`[BOT] 🔇 Auto-trading desativado — sinal ignorado: ${signal.signalId}`);
     state.signalIgnored(signal, 'autotrading_disabled');
     signalStore.add(signal.signalId, { status: 'skipped', reason: 'autotrading_disabled' });
+    return;
+  }
+
+  // Per-venue auto-trading gate — venue must be explicitly enabled for signal execution.
+  // Prevents accidental live execution when a new venue is first configured.
+  const _activeVenue = perpService.getActiveVenue();
+  if (!isVenueAutoTradingAllowed(_activeVenue)) {
+    logger.warn(
+      `[BOT] 🔕 Auto-trading bloqueado para venue "${_activeVenue}". ` +
+      `Defina ENABLE_AUTO_TRADING_${_activeVenue.toUpperCase()}=true para ativar. ` +
+      `Sinal ignorado: ${signal.signalId}`
+    );
+    state.signalIgnored(signal, `autotrading_disabled_venue_${_activeVenue}`);
+    signalStore.add(signal.signalId, { status: 'skipped', reason: `autotrading_disabled_${_activeVenue}` });
     return;
   }
 
@@ -392,7 +428,7 @@ async function main() {
   // Iniciar serviços opcionais (web, control bot)
   await startOptionalServices();
 
-  // Poller de conta — mantém state atualizado com dados reais do Drift
+  // Poller de conta — mantém state atualizado com dados reais da venue ativa
   // (web dashboard e Telegram control leem daqui; sem isso ficam com zeros)
   await startAccountPoller();
 
