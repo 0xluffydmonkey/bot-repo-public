@@ -777,6 +777,7 @@ export async function setTpSl(assetIndex, coinName, tp, sl) {
       }],
       grouping: 'positionTpsl',
     };
+    logger.info('[HL] TP wire', { coinName, action: tpAction });
     const tpResult = await _postExchange(tpAction).catch((err) => {
       logger.error('[HL] TP order failed', { coinName, action: tpAction, error: err.message });
       throw err;
@@ -802,6 +803,7 @@ export async function setTpSl(assetIndex, coinName, tp, sl) {
       }],
       grouping: 'positionTpsl',
     };
+    logger.info('[HL] SL wire', { coinName, action: slAction });
     const slResult = await _postExchange(slAction).catch((err) => {
       logger.error('[HL] SL order failed', { coinName, action: slAction, error: err.message });
       throw err;
