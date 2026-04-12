@@ -64,6 +64,7 @@ File: `/opt/bot/secrets/bot-secrets.env`
 BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
 WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 VALIANT_ACCOUNT_ADDRESS=0xSeuEnderecoPublico
 ```
 
@@ -76,6 +77,8 @@ JUPITER_API_BASE_URL=https://api.jup.ag
 PHOENIX_API_BASE_URL=https://api.phoenix.trade
 VALIANT_BASE_URL=https://api.hyperliquid.xyz
 ```
+
+Valiant/Hyperliquid usa uma agent/API wallet para assinatura de ordens. `VALIANT_MAIN_KEY_PATH` só é necessário ao habilitar operações de transferência spot→perps assinadas pela conta principal.
 
 ---
 
@@ -110,6 +113,10 @@ File: `backend/.env`
 ```env
 ENABLE_AUTO_TRADING_VALIANT=false
 ```
+
+Nota de margem Valiant/Hyperliquid: USDC em spot pode ser tratado como equity efetiva mesmo quando o free collateral de perps é zero. A transferência explícita spot→perps é opcional e protegida por `ENABLE_VALIANT_AUTO_MARGIN_TRANSFER`.
+
+Nota de TP/SL Valiant/Hyperliquid: TP/SL usa trigger orders nativas com `triggerPx`, preço limite agressivo válido `p`, `grouping: "positionTpsl"` e números normalizados em wire format antes da assinatura. Operadores devem verificar se as trigger orders foram aceitas pela venue.
 
 ---
 

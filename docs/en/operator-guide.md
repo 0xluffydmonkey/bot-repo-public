@@ -219,6 +219,8 @@ curl -X POST http://localhost:3000/api/close \
 
 Close operations are venue-aware — the bot resolves which venue holds the position automatically.
 
+Manual closes from Telegram or the web dashboard are always full market exits. On Valiant/Hyperliquid, the bot implements this as an aggressive reduce-only IOC order.
+
 ### Updating TP/SL
 
 Via Telegram: position detail → **🎯 Mod TP** or **🛑 Mod SL** → type new price → confirm.
@@ -232,6 +234,15 @@ curl -X POST http://localhost:3000/api/tpsl \
 ```
 
 Both `tp` and `sl` are optional — send only the one you want to change.
+
+On Valiant/Hyperliquid, TP/SL updates are native trigger orders, not simple flags. The order payload must include `triggerPx`, a valid aggressive limit price `p`, `grouping: "positionTpsl"`, and normalized numeric fields before signing. If the venue rejects the trigger order, the position remains open and the operator must verify protection manually.
+
+Valiant / Hyperliquid validation checklist after opening a position:
+- Confirm the position exists in the Hyperliquid UI.
+- Confirm TP is present in the UI.
+- Confirm SL is present in the UI.
+- If TP/SL are missing, consider the position unprotected and set them manually or close the position.
+- Check logs for `[HL] TP wire`, `[HL] SL wire`, and `[VALIANT] TP/SL placement falhou`.
 
 ### Partial position reduction
 

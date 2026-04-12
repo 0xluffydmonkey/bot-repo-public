@@ -70,6 +70,8 @@ Veja [docs/pt-BR/modo-paper.md](docs/pt-BR/modo-paper.md) para o comportamento d
 5. Monitora posições abertas e envia alertas de PnL pelo Telegram
 6. Aceita comandos manuais (abrir, fechar, reduzir, TP/SL) pelo dashboard e pelo Telegram
 
+Closes manuais pelo Telegram ou dashboard web são saídas completas a mercado por decisão operacional; em Valiant/Hyperliquid isso é implementado com ordens IOC reduce-only agressivas.
+
 ---
 
 ## Modos Operacionais

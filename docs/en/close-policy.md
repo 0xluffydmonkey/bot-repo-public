@@ -64,6 +64,7 @@ Notes:
 
 - Telegram single-position close usually emits `pos.venue` explicitly
 - Remote operator flows are intentionally stricter than direct local manual helpers
+- Telegram and web dashboard manual closes are always full market exits; on Valiant/Hyperliquid this is implemented as aggressive reduce-only IOC behavior
 
 ---
 

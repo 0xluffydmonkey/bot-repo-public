@@ -15,7 +15,7 @@ That document covers: initial setup, secrets, .env, installing the service, cont
 | `bot-trader.service` | systemd unit file — copy to `/etc/systemd/system/` |
 | `start.sh` | Backward-compatibility wrapper → delegates to `backend/start.sh` |
 
-The canonical entrypoint is `backend/start.sh`. The service file calls it with no flags — module activation is controlled by `.env` (see `ENABLE_SIGNAL_LISTENER`, `ENABLE_WEB`, `ENABLE_CONTROL_BOT`).
+The canonical entrypoint is the root `start.sh`, which delegates to `backend/start.sh`. The service file calls it with no flags — module activation is controlled by `.env` (see `ENABLE_SIGNAL_LISTENER`, `ENABLE_WEB`, `ENABLE_CONTROL_BOT`).
 
 ---
 

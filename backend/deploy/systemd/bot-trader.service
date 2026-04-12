@@ -1,22 +1,22 @@
 [Unit]
-Description=Bot Trader - Automated Trading Bot (Drift Protocol)
+Description=Bot Trader - Multi-Venue Trading Bot
 Documentation=https://github.com/yourorg/bot-repo
 After=network.target
 # Fail fast if secrets file or config file are missing
 ConditionPathExists=/opt/bot/secrets/bot-secrets.env
 # Non-secret config (.env contains only placeholders — secrets are in bot-secrets.env)
-ConditionPathExists=/home/ubuntu/v2-bot-repo/bot-repo/backend/.env
+ConditionPathExists=/home/ubuntu/bot-repo/backend/.env
 
 [Service]
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/home/ubuntu/v2-bot-repo/bot-repo
+WorkingDirectory=/home/ubuntu/bot-repo
 
 # start.sh (root) delegates to backend/start.sh, which handles secrets validation,
 # node resolution, and process launch.
 # Module activation is controlled by .env (ENABLE_WEB, ENABLE_CONTROL_BOT, ENABLE_SIGNAL_LISTENER).
-ExecStart=/home/ubuntu/v2-bot-repo/bot-repo/start.sh
+ExecStart=/home/ubuntu/bot-repo/start.sh
 
 # Restart policy
 Restart=always

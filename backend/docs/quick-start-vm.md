@@ -40,12 +40,14 @@ node --version   # should be >= 18
 ```bash
 cd ~
 git clone git@github.com:YOUR_USER/bot-repo.git bot-repo
-cd bot-repo/backend
+cd bot-repo
 
+cd backend
 npm install
+cd ..
 
-# Make start.sh executable
-chmod +x start.sh
+# Make entrypoints executable
+chmod +x start.sh stop.sh status.sh backend/start.sh
 ```
 
 **To update an existing clone:**
@@ -116,6 +118,9 @@ WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 # Example for an agent-key backend
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
 VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
+
+# Valiant/Hyperliquid: only required when ENABLE_VALIANT_AUTO_MARGIN_TRANSFER=true
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 ```
 
 Also place the wallet and Telegram session:
@@ -182,6 +187,14 @@ Expected output:
 
 Press `Ctrl+C` to stop once verified.
 
+For Valiant/Hyperliquid, after opening a live position:
+
+- Confirm the position exists in the venue UI.
+- Confirm TP is present in the venue UI.
+- Confirm SL is present in the venue UI.
+- If TP/SL are missing, treat the position as unprotected and set them manually or close it.
+- Check logs for `[HL] TP wire`, `[HL] SL wire`, and `[VALIANT] TP/SL placement falhou`.
+
 ---
 
 ## 6. Install systemd service
@@ -193,7 +206,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable bot-trader
 ```
 
-The service file at `deploy/systemd/bot-trader.service` points to `backend/start.sh`. Module activation is read from `.env` — the `ExecStart` line passes no flags.
+The service file expects the documented clone path `/home/ubuntu/bot-repo` and runs the root `start.sh`, which delegates to `backend/start.sh`. Module activation is read from `.env` — the `ExecStart` line passes no flags.
 
 **Override paper trading** (without editing `.env`):
 
@@ -306,7 +319,7 @@ Common causes:
 | `[START] Secrets file not found` | Create `/opt/bot/secrets/bot-secrets.env` with `chmod 600` |
 | `ConditionPathExists` failed | `.env` or secrets file path doesn't exist — check the service file |
 | `node binary not found` | nvm node not visible to systemd — `start.sh` probes `~/.nvm/versions/node` automatically |
-| `Permission denied` | `chmod +x backend/start.sh` |
+| `Permission denied` | `chmod +x start.sh stop.sh status.sh backend/start.sh` |
 
 **Test start.sh manually as the service user**
 

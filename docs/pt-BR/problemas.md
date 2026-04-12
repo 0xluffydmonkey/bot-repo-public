@@ -193,9 +193,12 @@ WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
 WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
 WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 ```
 
 Nunca coloque private keys brutas no `.env` ou em `bot-secrets.env`.
+
+`VALIANT_MAIN_KEY_PATH` só é exigido para operações Valiant/Hyperliquid de transferência assinadas pelo usuário, como a transferência opcional spot→perps.
 
 ---
 

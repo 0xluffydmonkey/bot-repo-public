@@ -64,6 +64,7 @@ Observações:
 
 - o close individual no Telegram normalmente emite `pos.venue` explicitamente
 - os fluxos remotos do operador são intencionalmente mais estritos do que os helpers manuais locais
+- closes manuais pelo Telegram e dashboard web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
 
 ---
 

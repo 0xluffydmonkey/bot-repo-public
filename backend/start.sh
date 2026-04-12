@@ -59,6 +59,14 @@ echo "[START] node: $NODE_BIN ($("$NODE_BIN" --version 2>&1))"
 # BACKEND_DIR is:    backend/
 BACKEND_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 ENTRY_POINT="$BACKEND_DIR/src/index.js"
+CONFIG_FILE="${BOT_ENV_FILE:-$BACKEND_DIR/.env}"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "[START] Config file not found: $CONFIG_FILE" >&2
+  echo "[START] Create it from the example and keep secrets out of it:" >&2
+  echo "[START]   cp $BACKEND_DIR/.env.example $BACKEND_DIR/.env" >&2
+  exit 1
+fi
 
 if [ ! -f "$ENTRY_POINT" ]; then
   echo "[START] Entry point not found: $ENTRY_POINT" >&2

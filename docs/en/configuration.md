@@ -126,6 +126,7 @@ WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
 WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
 WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
 ```
 
@@ -134,7 +135,7 @@ VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
 | Backend type | Configuration model |
 |--------------|---------------------|
 | Solana wallet backend | `WALLET_<VENUE>_PATH` or fallback `BOT_WALLET_PATH` |
-| Agent-key backend | `*_AGENT_KEY_PATH` plus public account/address config |
+| Agent-key backend | `*_AGENT_KEY_PATH` plus public account/address config; main-account key path when user-signed transfers are enabled |
 
 Current examples:
 
@@ -143,7 +144,7 @@ Current examples:
 | Drift | `WALLET_DRIFT_PATH` → falls back to `BOT_WALLET_PATH` if not set |
 | Jupiter | `WALLET_JUPITER_PATH` (required when `PERP_OPEN_VENUE=jupiter`) |
 | Phoenix | `WALLET_PHOENIX_PATH` (required when `PERP_OPEN_VENUE=phoenix`) |
-| Valiant-compatible | `VALIANT_AGENT_KEY_PATH` plus `VALIANT_ACCOUNT_ADDRESS` |
+| Valiant-compatible | `VALIANT_AGENT_KEY_PATH` plus `VALIANT_ACCOUNT_ADDRESS`; `VALIANT_MAIN_KEY_PATH` only when spot→perps transfer signing is enabled |
 
 **Drift backward compatibility:** existing deployments that only set `BOT_WALLET_PATH` keep working without any changes.
 
@@ -162,6 +163,8 @@ ENABLE_AUTO_TRADING_VALIANT=false
 ```
 
 Keep backend-specific gates disabled until paper testing, preflight checks, and a small manual live test have passed.
+
+For Valiant/Hyperliquid, spot USDC may be counted as effective backing equity even when perps free collateral is zero. Explicit spot→perps transfer is optional and controlled only by `ENABLE_VALIANT_AUTO_MARGIN_TRANSFER`; equity assessment is not dependent on that transfer gate.
 
 ---
 
@@ -211,5 +214,6 @@ Close flows are venue-aware and do not all behave the same way.
 
 - direct manual helper closes may still use active-venue fallback for backward compatibility
 - remote, command-bus, and automated close flows are stricter and may refuse the close if venue cannot be resolved safely
+- manual closes initiated from Telegram or the web dashboard are always full market exits; on Valiant/Hyperliquid this is implemented as aggressive reduce-only IOC behavior
 
 See [Close Policy](close-policy.md) for the canonical detailed rules.

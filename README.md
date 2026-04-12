@@ -70,6 +70,8 @@ See [docs/en/paper-mode.md](docs/en/paper-mode.md) for full paper vs live behavi
 5. Tracks open positions and sends PnL alerts via Telegram
 6. Accepts manual trading commands (open, close, reduce, TP/SL) from dashboard and Telegram
 
+Manual closes from Telegram or the web dashboard are intentional full market exits; on Valiant/Hyperliquid this is implemented with aggressive reduce-only IOC orders.
+
 ---
 
 ## Operational Modes

@@ -126,6 +126,7 @@ WALLET_DRIFT_PATH=/opt/bot/wallets/drift.json
 WALLET_JUPITER_PATH=/opt/bot/wallets/jupiter.json
 WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 VALIANT_ACCOUNT_ADDRESS=0xSeuEnderecoPublico
 ```
 
@@ -134,7 +135,7 @@ VALIANT_ACCOUNT_ADDRESS=0xSeuEnderecoPublico
 | Tipo de backend | Modelo de configuração |
 |-----------------|------------------------|
 | Backend com wallet Solana | `WALLET_<VENUE>_PATH` ou fallback `BOT_WALLET_PATH` |
-| Backend com agent key | `*_AGENT_KEY_PATH` mais endereço/conta pública |
+| Backend com agent key | `*_AGENT_KEY_PATH` mais endereço/conta pública; caminho da chave da conta principal quando transferências assinadas pelo usuário estiverem habilitadas |
 
 Exemplos atuais:
 
@@ -143,7 +144,7 @@ Exemplos atuais:
 | Drift | `WALLET_DRIFT_PATH` → faz fallback para `BOT_WALLET_PATH` se não estiver definido |
 | Jupiter | `WALLET_JUPITER_PATH` (obrigatório quando `PERP_OPEN_VENUE=jupiter`) |
 | Phoenix | `WALLET_PHOENIX_PATH` (obrigatório quando `PERP_OPEN_VENUE=phoenix`) |
-| Compatível com Valiant | `VALIANT_AGENT_KEY_PATH` mais `VALIANT_ACCOUNT_ADDRESS` |
+| Compatível com Valiant | `VALIANT_AGENT_KEY_PATH` mais `VALIANT_ACCOUNT_ADDRESS`; `VALIANT_MAIN_KEY_PATH` apenas quando assinatura de transferência spot→perps estiver habilitada |
 
 **Compatibilidade retroativa com Drift:** implantações existentes que definem apenas `BOT_WALLET_PATH` continuam funcionando sem mudanças.
 
@@ -162,6 +163,8 @@ ENABLE_AUTO_TRADING_VALIANT=false
 ```
 
 Mantenha gates específicos de backend desativados até passar por testes em paper, preflight e um teste live manual pequeno.
+
+Para Valiant/Hyperliquid, USDC em spot pode contar como equity efetiva mesmo quando o free collateral de perps é zero. A transferência explícita spot→perps é opcional e controlada apenas por `ENABLE_VALIANT_AUTO_MARGIN_TRANSFER`; a avaliação de equity não depende desse gate.
 
 ---
 
@@ -211,5 +214,6 @@ Os fluxos de close são venue-aware e não se comportam todos da mesma forma.
 
 - helpers manuais diretos de close ainda podem usar fallback para a venue ativa por compatibilidade retroativa
 - fluxos remotos, command-bus e automatizados são mais estritos e podem recusar o close se a venue não puder ser resolvida com segurança
+- closes manuais iniciados pelo Telegram ou dashboard web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
 
 Veja [Política de Close](politica-de-close.md) para as regras detalhadas canônicas.

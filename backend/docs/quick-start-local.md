@@ -112,6 +112,9 @@ WALLET_PHOENIX_PATH=/opt/bot/wallets/phoenix.json
 # Example for an agent-key backend
 VALIANT_AGENT_KEY_PATH=/opt/bot/secrets/valiant-agent-key.txt
 VALIANT_ACCOUNT_ADDRESS=0xYourPublicAccountAddress
+
+# Valiant/Hyperliquid: only required when ENABLE_VALIANT_AUTO_MARGIN_TRANSFER=true
+VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 ```
 
 ---
@@ -189,6 +192,14 @@ Expected log output:
 [BOT] Active — waiting for signals
 [WEB] Dashboard available at http://localhost:3000   # if ENABLE_WEB=true
 ```
+
+For Valiant/Hyperliquid, after opening a live position:
+
+- Confirm the position exists in the venue UI.
+- Confirm TP is present in the venue UI.
+- Confirm SL is present in the venue UI.
+- If TP/SL are missing, treat the position as unprotected and set them manually or close it.
+- Check logs for `[HL] TP wire`, `[HL] SL wire`, and `[VALIANT] TP/SL placement falhou`.
 
 ---
 
