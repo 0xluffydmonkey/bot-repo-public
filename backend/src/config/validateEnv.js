@@ -115,11 +115,18 @@ const BANNED_RAW_SECRETS = [
     path: 'TELEGRAM_SESSION_PATH',
     hint: 'Copie o arquivo telegram_session.txt gerado no primeiro boot.',
   },
-  // Valiant / Hyperliquid — EVM private key used for EIP-712 phantom-agent signing.
+  // Valiant / Hyperliquid — EVM private key used for EIP-712 phantom-agent signing (orders).
   {
     raw:  'VALIANT_AGENT_KEY',
     path: 'VALIANT_AGENT_KEY_PATH',
     hint: 'Escreva o private key EVM (0x-prefixed hex, 32 bytes) no arquivo.',
+  },
+  // Valiant / Hyperliquid — EVM private key of the main account used for transfer signing.
+  // usdClassTransfer must be signed by the main account, not the agent wallet.
+  {
+    raw:  'VALIANT_MAIN_KEY',
+    path: 'VALIANT_MAIN_KEY_PATH',
+    hint: 'Escreva o private key EVM da conta principal (0x-prefixed hex, 32 bytes) no arquivo.',
   },
 ];
 
@@ -181,8 +188,17 @@ export function validateEnv() {
   //
   // ── Valiant / Hyperliquid ─────────────────────────────────────────────────────
   //
-  // Perp execution is routed through Hyperliquid via EIP-712 phantom-agent signing.
-  // Agent key is an EVM private key — must live in a file, never in an env var.
+  // Hyperliquid uses two distinct signing identities:
+  //   VALIANT_AGENT_KEY_PATH  — agent wallet signs orders/cancels/leverage (phantom-agent EIP-712)
+  //   VALIANT_MAIN_KEY_PATH   — main account wallet signs transfers (user-signed EIP-712)
+  //   VALIANT_ACCOUNT_ADDRESS — the perps account address; used only for /info queries,
+  //                             never as a signing identity
+  //
+  // VALIANT_MAIN_KEY_PATH is required when ENABLE_VALIANT_AUTO_MARGIN_TRANSFER=true,
+  // because usdClassTransfer must be signed by the main account, not the agent wallet.
+  // Hyperliquid recovers the signer address directly from the transfer signature —
+  // if the agent wallet signs, the exchange sees the wrong user and rejects with
+  // "Must deposit before performing actions. User: <agent-address>".
 
   if (!isPaper && venue === 'valiant') {
     // VALIANT_BASE_URL is non-sensitive but MUST be explicitly set.
@@ -195,11 +211,16 @@ export function validateEnv() {
         '     VALIANT_BASE_URL=https://api.hyperliquid.xyz'
       );
     }
-    // VALIANT_AGENT_KEY_PATH: path to a file containing the EVM private key (0x-prefixed hex, 32 bytes).
-    // Generated via: cast wallet new  OR  openssl rand -hex 32
-    // Must be pre-authorized on Hyperliquid as an agent for VALIANT_ACCOUNT_ADDRESS.
+    // VALIANT_AGENT_KEY_PATH: agent wallet key for order signing (phantom-agent EIP-712).
+    // Must be pre-authorized on Hyperliquid as an API wallet for VALIANT_ACCOUNT_ADDRESS.
     checkPath('VALIANT_AGENT_KEY_PATH',    errors);
     checkSecret('VALIANT_ACCOUNT_ADDRESS', errors);
+
+    // VALIANT_MAIN_KEY_PATH: main account key for transfer signing (user-signed EIP-712).
+    // Required when auto-margin transfer is enabled. The agent wallet cannot sign transfers.
+    if (process.env.ENABLE_VALIANT_AUTO_MARGIN_TRANSFER === 'true') {
+      checkPath('VALIANT_MAIN_KEY_PATH', errors);
+    }
   }
 
   // ── Fail fast ─────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@
 //
 // SECURITY:
 //   - File content is never logged
-//   - Only the first 8 chars + length are logged as a non-sensitive confirmation
+//   - Only the file path and length are logged as a confirmation
 //   - Fails fast with an actionable error if the path var is unset or the file
 //     is missing / unreadable / empty
 
@@ -72,7 +72,7 @@ export function loadSecretFromFile(pathEnvVar, description) {
     );
   }
 
-  // Log only a non-sensitive confirmation — never the content
-  logger.info(`[SECRET] ${description} carregado de "${filePath}" (${content.length} chars, prefixo: ${content.slice(0, 8)}…)`);
+  // Log only a confirmation — never the secret content or prefix.
+  logger.info(`[SECRET] ${description} carregado de "${filePath}" (${content.length} chars)`);
   return content;
 }

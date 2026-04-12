@@ -297,7 +297,7 @@ function registerCommandHandlers() {
       state.addError(`cmd:close ${asset}`, err);
       return;
     }
-    logger.info(`[BOT] 🔒 Comando: fechar ${asset} (venue: ${resolvedVenue})`);
+    logger.info(`[BOT] 🔒 Comando: fechar ${asset} a mercado (venue: ${resolvedVenue})`);
     try {
       await perpService.closeTrade(asset, resolvedVenue);
       logger.info(`[BOT] ✅ Posição ${asset} fechada via comando`);
@@ -316,7 +316,7 @@ function registerCommandHandlers() {
       state.addError('cmd:close_all', err);
       return;
     }
-    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições (venue: ${resolvedVenue})`);
+    logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições a mercado (venue: ${resolvedVenue})`);
     try {
       const results = await perpService.closeAllTrades(resolvedVenue);
       const ok = Array.isArray(results) ? results.filter(r => r.success).length : '?';

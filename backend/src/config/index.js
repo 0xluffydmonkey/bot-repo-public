@@ -152,11 +152,11 @@ export const VALIANT_MARKETS = {
     SOL:  5,
     AVAX: 6,
     BNB:  7,
-    APT:  8,
-    ARB:  9,
-    DOGE: 10,
-    SUI:  17,
-    WIF:  21,
+    ARB:  11,
+    DOGE: 12,
+    SUI:  14,
+    APT:  27,
+    WIF:  98,
   },
 
   MARKET_LIMITS: {

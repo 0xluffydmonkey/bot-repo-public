@@ -40,11 +40,11 @@ const EXPECTED_ASSET_INDEX = {
   SOL:  5,
   AVAX: 6,
   BNB:  7,
-  APT:  8,
-  ARB:  9,
-  DOGE: 10,
-  SUI:  17,
-  WIF:  21,
+  ARB:  11,
+  DOGE: 12,
+  SUI:  14,
+  APT:  27,
+  WIF:  98,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -109,7 +109,12 @@ if (process.env.VALIANT_AGENT_KEY) {
     if (!content) {
       fail(`Key file is empty: ${agentKeyPath}`);
     } else {
-      ok(`Key file readable: ${content.length} chars, prefix ${content.slice(0, 8)}…`);
+      const normalized = content.startsWith('0x') ? content.slice(2) : content;
+      if (!/^[0-9a-fA-F]{64}$/.test(normalized)) {
+        fail(`Key file has invalid EVM private-key format: ${agentKeyPath}`);
+      } else {
+        ok(`Key file readable and format looks valid (${content.length} chars)`);
+      }
     }
   } catch (err) {
     fail(`Cannot read key file "${agentKeyPath}": ${err.message}`);
@@ -195,7 +200,7 @@ console.log(`    freeCollateral:  $${freeCollateral.toFixed(2)}`);
 console.log(`    openPositions:   ${positions.length}`);
 
 if (accountValue === 0 && marginUsed === 0) {
-  warn('All values are zero — account may not exist at this address, or API response shape is different');
+  fail('All account values are zero — account may not exist at this address, may have no collateral, or API response shape is different');
   warn('Check: does the API return "crossMarginSummary" or a different field?');
   warn(`Raw response keys: ${Object.keys(state).join(', ')}`);
 } else {
@@ -203,7 +208,7 @@ if (accountValue === 0 && marginUsed === 0) {
 }
 
 if (freeCollateral < 10) {
-  warn(`Low free collateral ($${freeCollateral.toFixed(2)}) — deposit before trading`);
+  fail(`Low free collateral ($${freeCollateral.toFixed(2)}) — deposit before trading`);
 } else {
   ok(`Free collateral sufficient for test trade: $${freeCollateral.toFixed(2)}`);
 }

@@ -23,7 +23,7 @@ const MIN_COLLATERAL_USD = 0.10;
  *
  * Retorna params ajustados ou null (rejeição com log do motivo).
  */
-export async function calculateTradeParams(signal, walletBalanceUSD) {
+export async function calculateTradeParams(signal, walletBalanceUSD, opts = {}) {
   logger.info(`[RISK] ── Pré-validação ${signal.signalId} (${signal.direction} ${signal.asset}) ──`);
 
   const adjustments = [];
@@ -84,12 +84,22 @@ export async function calculateTradeParams(signal, walletBalanceUSD) {
     logger.debug(`[RISK] State freeCollateral: $${(snap.account?.freeCollateral ?? 0).toFixed(2)}`);
     logger.debug(`[RISK] Using venue snapshot for risk calculation`);
 
-    freeCollateral   = account.freeCollateral;
-    totalEquity      = account.totalEquity;
+    // equityOverride: when passed by ManualTradeService for Valiant spot-backed margin,
+    // represents effective usable equity (spot + perps) for correct trade sizing.
+    // Covers both paths: spot-backed direct (no transfer, HL bridges margin at fill)
+    // and auto-transfer (explicit transfer after approval, when the flag is set).
+    // positionCount and totalNotional always come from the real account.
+    freeCollateral   = opts.equityOverride != null ? opts.equityOverride : account.freeCollateral;
+    totalEquity      = opts.equityOverride != null ? opts.equityOverride : account.totalEquity;
     currentPositions = account.positionCount;
     totalNotional    = account.totalNotional;
 
-    logger.info(`[RISK] Conta (${perpService.getActiveVenue().toUpperCase()}): freeCollateral=$${freeCollateral.toFixed(2)} | equity=$${totalEquity.toFixed(2)} | posições=${currentPositions} | notional=$${totalNotional.toFixed(2)}`);
+    logger.info(
+      `[RISK] Conta (${perpService.getActiveVenue().toUpperCase()}): ` +
+      `freeCollateral=$${freeCollateral.toFixed(2)} | equity=$${totalEquity.toFixed(2)} | ` +
+      `posições=${currentPositions} | notional=$${totalNotional.toFixed(2)}` +
+      (opts.equityOverride != null ? ' [hipotético: spot+perps combinados]' : '')
+    );
   }
 
   // ─── 4. Limite de posições simultâneas ────────────────────────────────────

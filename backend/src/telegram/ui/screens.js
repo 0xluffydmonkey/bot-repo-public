@@ -66,18 +66,39 @@ export function renderBalance(account, session) {
     ? ((account.unrealizedPnl / account.totalEquity) * 100)
     : 0;
 
-  return [
+  const spotUSDC = account.spotUSDC ?? 0;
+
+  const lines = [
     `💰 <b>Saldo da Conta</b>`,
     ``,
     `Equity Total:    <code>${fmt(account.totalEquity)}</code>`,
     `Free Collateral: <code>${fmt(account.freeCollateral)}</code>`,
     `Margem Usada:    <code>${fmt(account.marginUsed)}</code>`,
+  ];
+
+  // spotUSDC is only populated for Valiant (Hyperliquid) — hidden for other venues.
+  if (spotUSDC > 0) {
+    lines.push(`Spot USDC:       <code>${fmt(spotUSDC)}</code>  ⚠️ fora da margem perps`);
+  }
+
+  lines.push(
     ``,
     `PnL Aberto:  <code>${fmtSign(account.unrealizedPnl)}</code>  (${fmtPct(pnlPct)})`,
     `PnL Sessão:  <code>${fmtSign(session?.sessionPnl)}</code>`,
     ``,
     `🕐 ${fmtTime(new Date())}`,
-  ].join('\n');
+  );
+
+  // Advisory: perps margin is zero but spot USDC is available.
+  // Only shown when spotUSDC > 0 (i.e. only for Valiant — self-gating).
+  if (account.freeCollateral <= 0 && spotUSDC > 0) {
+    lines.push(
+      ``,
+      `⚠️ <b>Margem perps zero.</b> Transfira o USDC de spot para perps via UI do Hyperliquid para operar.`,
+    );
+  }
+
+  return lines.join('\n');
 }
 
 // ── Lista de posições (header + instrução; itens ficam nos botões) ────────────

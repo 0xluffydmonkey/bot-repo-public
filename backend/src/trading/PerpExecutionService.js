@@ -28,6 +28,8 @@ export const perpService = {
 
   /**
    * Close a specific position on the configured venue.
+   * UI/manual closes are always full market exits; adapters implement this
+   * with the safest market-equivalent primitive available on the venue.
    * @param {string} asset - e.g. 'SOL', 'BTC'
    * @param {string|null} venueOverride - optional explicit venue for this close
    */

@@ -24,6 +24,7 @@ import { perpService } from '../PerpExecutionService.js';
 import { resolveCloseVenue } from '../closeVenueResolver.js';
 
 const DEBOUNCE_MS = 1_000; // max one trailing update per asset per second
+const CLOSE_CONFIRMATION_MISSES = 2;
 
 class PositionManager {
   constructor() {
@@ -33,6 +34,8 @@ class PositionManager {
     this._closing      = new Set();
     // Debounce: asset → last trailing update timestamp (ms)
     this._lastTrailAt  = new Map();
+    // asset → consecutive monitoring snapshots where the tracked asset is absent
+    this._missingCount = new Map();
 
     this._readConfig();
   }
@@ -71,10 +74,21 @@ class PositionManager {
     const activeAssets = new Set(positions.map(p => p.asset));
     for (const asset of this._tracking.keys()) {
       if (!activeAssets.has(asset)) {
+        const misses = (this._missingCount.get(asset) ?? 0) + 1;
+        this._missingCount.set(asset, misses);
+
+        if (misses < CLOSE_CONFIRMATION_MISSES) {
+          logger.warn(`[PM] Posição ${asset} ausente no snapshot (${misses}/${CLOSE_CONFIRMATION_MISSES}) — aguardando confirmação`);
+          continue;
+        }
+
         logger.info(`[PM] Posição ${asset} fechada — tracking removido`);
         this._tracking.delete(asset);
         this._closing.delete(asset);
         this._lastTrailAt.delete(asset);
+        this._missingCount.delete(asset);
+      } else {
+        this._missingCount.delete(asset);
       }
     }
 
@@ -123,6 +137,7 @@ class PositionManager {
         venue,
       });
     }
+    this._missingCount.delete(asset);
 
     const track = this._tracking.get(asset);
     if (!track.venue) track.venue = venue;

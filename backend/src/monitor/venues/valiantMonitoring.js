@@ -5,17 +5,37 @@
 import {
   getAccountSnapshot  as fetchAccountSnapshot,
   getPositions        as fetchOpenPositions,
+  getSpotBalance      as fetchSpotBalance,
 } from '../../trading/clients/hyperliquidClient.js';
 
 export const valiantMonitoringAdapter = {
   venue: 'valiant',
 
   /**
-   * Returns venue-agnostic account summary.
-   * @returns {Promise<{ freeCollateral: number, totalEquity: number, positionCount: number, totalNotional: number }>}
+   * Returns venue-agnostic account summary, enriched with spot USDC balance
+   * for operator diagnostics.
+   *
+   * spotUSDC is fetched in parallel with the perps snapshot and is best-effort:
+   * if the spot query fails the perps snapshot is still returned normally and
+   * spotUSDC defaults to 0.  Trading and risk decisions are never based on spotUSDC —
+   * it is purely for operator visibility in the dashboard and Telegram balance screen.
+   *
+   * @returns {Promise<{ freeCollateral, totalEquity, positionCount, totalNotional, spotUSDC }>}
    */
   async fetchAccountSummary() {
-    return fetchAccountSnapshot();
+    const [perpsResult, spotResult] = await Promise.allSettled([
+      fetchAccountSnapshot(),
+      fetchSpotBalance(),
+    ]);
+
+    if (perpsResult.status === 'rejected') {
+      throw perpsResult.reason;
+    }
+
+    return {
+      ...perpsResult.value,
+      spotUSDC: spotResult.status === 'fulfilled' ? spotResult.value : 0,
+    };
   },
 
   /**

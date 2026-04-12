@@ -119,8 +119,8 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     const { asset, venue } = req.body ?? {};
     if (!asset) return res.status(400).json({ ok: false, error: 'asset obrigatório' });
     const { venue: resolvedVenue } = resolveCloseVenue(asset, venue, { allowActiveFallback: false });
-    logger.info(`[WEB] Comando: fechar ${asset}`, { venue: resolvedVenue ?? '(ativa)' });
-    // cmd:close é executado de forma assíncrona pelo handler em index.js
+    logger.info(`[WEB] Comando: fechar ${asset} a mercado`, { venue: resolvedVenue ?? '(ativa)' });
+    // cmd:close é sempre fechamento total a mercado e executa de forma assíncrona pelo handler em index.js
     state.emit('cmd:close', { asset, venue: resolvedVenue });
     res.json({ ok: true, async: true, asset, venue: resolvedVenue, note: 'Comando enviado. Resultado disponível via /api/state ou WebSocket.' });
   });
@@ -128,8 +128,8 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
   app.post('/api/close_all', requireActionAuth, (req, res) => {
     const { venue } = req.body ?? {};
     const { venue: resolvedVenue } = resolveCloseVenue(null, venue, { allowActiveFallback: false });
-    logger.info('[WEB] Comando: fechar todas as posições', { venue: resolvedVenue ?? '(ativa)' });
-    // cmd:close_all é executado de forma assíncrona pelo handler em index.js
+    logger.info('[WEB] Comando: fechar todas as posições a mercado', { venue: resolvedVenue ?? '(ativa)' });
+    // cmd:close_all fecha posições a mercado e executa de forma assíncrona pelo handler em index.js
     state.emit('cmd:close_all', { venue: resolvedVenue });
     res.json({ ok: true, async: true, venue: resolvedVenue, note: 'Comando enviado. Resultado disponível via /api/state ou WebSocket.' });
   });

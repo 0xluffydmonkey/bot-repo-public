@@ -16,6 +16,7 @@ import { calculateTradeCost } from './costs/tradeCostCalculator.js';
 import { config } from '../config/index.js';
 import state from '../core/state.js';
 import { resolveCloseVenue } from './closeVenueResolver.js';
+import { ensureValiantPerpsMargin, getValiantSpotUSDC } from './valiantAutoTransfer.js';
 
 /** Resolve the venue for a position from state.positions, or null if not tracked. */
 function resolvePositionVenue(asset) {
@@ -91,23 +92,116 @@ export async function executeSignal(signal, opts = {}) {
   }
 
   // ── 1. Verificar saldo — via PerpExecutionService (venue-agnostic) ──────────
-  const walletBalance = await perpService.getBalance();
+  let walletBalance = await perpService.getBalance();
+
+  // ── 1.5. Valiant: spot USDC como equity efetiva quando perps = 0 ────────────
+  //
+  // When perps free collateral is zero and venue is Valiant/Hyperliquid, fetch spot
+  // USDC and use it as effective equity for risk manager sizing.
+  //
+  // Hyperliquid allows isolated perp positions to be opened directly against spot
+  // USDC without an explicit prior transfer — the exchange bridges the required margin
+  // internally at fill time.  This matches observed UI behavior: opening a position
+  // in the HL UI succeeds when clearinghouseState shows zero but
+  // spotClearinghouseState shows available USDC.
+  //
+  // This check is NOT gated by ENABLE_VALIANT_AUTO_MARGIN_TRANSFER.
+  // Equity assessment always runs for Valiant when perps = 0, so the risk manager
+  // always receives the correct effective equity regardless of the transfer flag.
+  //
+  // The explicit spot→perps transfer (Step 2.5) only runs when the flag IS set.
+  let riskManagerOpts = {};
+  let _preTransferPerpsBalance = walletBalance;
+  if (!config.trading.paperMode
+      && walletBalance <= 0
+      && activeVenue === 'valiant') {
+    try {
+      const spotBalance = await getValiantSpotUSDC();
+      if (spotBalance > 0) {
+        const combinedEquity = walletBalance + spotBalance;
+        riskManagerOpts = { equityOverride: combinedEquity };
+        walletBalance   = combinedEquity;
+        logger.info('[EXEC] Margem perps zero — spot USDC usado como equity efetiva', {
+          signalId:       signal.signalId,
+          spotUSDC:       spotBalance.toFixed(2),
+          perpsUSDC:      _preTransferPerpsBalance.toFixed(2),
+          combinedEquity: combinedEquity.toFixed(2),
+          path:           process.env.ENABLE_VALIANT_AUTO_MARGIN_TRANSFER === 'true'
+                            ? 'auto-transfer (transferência explícita após aprovação)'
+                            : 'spot-backed direto (Hyperliquid usa spot como margem inicial)',
+        });
+      }
+    } catch (diagErr) {
+      logger.debug(`[EXEC] Consulta spot falhou — continuando sem override: ${diagErr.message}`);
+    }
+  }
+
   if (walletBalance <= 0 && !config.trading.paperMode) {
+    // ── Diagnostic enrichment for Valiant ────────────────────────────────────
+    // Reached only when perps = 0 AND Step 1.5 either found spot = 0 or threw.
+    // A second spot query here provides a best-effort diagnostic message.
+    // A failed query never blocks the error response below.
+    let reason = `Margem perps insuficiente: $${walletBalance.toFixed(2)}`;
+    if (activeVenue === 'valiant') {
+      try {
+        const spotUSDC = await getValiantSpotUSDC();
+        if (spotUSDC > 0) {
+          reason = `Margem perps zero. Spot USDC disponível: $${spotUSDC.toFixed(2)} — consulta de spot falhou na avaliação inicial (erro transiente?). Tente novamente.`;
+        } else {
+          reason = `Margem perps zero e spot USDC também zero. Deposite USDC no Hyperliquid antes de operar.`;
+        }
+      } catch (diagErr) {
+        logger.debug(`[EXEC] Diagnóstico spot falhou (não bloqueia): ${diagErr.message}`);
+      }
+    }
     return {
       success: false,
       phase:   'balance',
-      reason:  `Saldo insuficiente: $${walletBalance}`,
+      reason,
     };
   }
 
   // ── 2. Risk manager ─────────────────────────────────────────────────────────
-  const tradeParams = await calculateTradeParams(signal, walletBalance);
+  const tradeParams = await calculateTradeParams(signal, walletBalance, riskManagerOpts);
   if (!tradeParams) {
     return {
       success: false,
       phase:   'risk',
       reason:  'Rejeitado pelo risk manager',
     };
+  }
+
+  // ── 2.5. Auto-transfer: move exact required margin AFTER risk approval ──────
+  //
+  // Now that the risk manager has approved the trade and returned positionSizeUSD,
+  // we calculate the exact shortfall and transfer only that amount from spot to perps.
+  //
+  // Formula: grossNeeded = positionSizeUSD / (1 - MIN_FREE_MARGIN_PCT)
+  //          transferAmount = max(0, grossNeeded - existingPerpsBalance) * 1.02
+  //   where 1.02 provides a 2% buffer for rounding and minor API lag.
+  //
+  // Fail closed: any error propagates up as an execution failure.
+  // The order is NEVER attempted after a failed or incomplete transfer.
+  if (riskManagerOpts.equityOverride != null
+      && process.env.ENABLE_VALIANT_AUTO_MARGIN_TRANSFER === 'true') {
+    const grossNeeded    = tradeParams.positionSizeUSD / (1 - config.trading.minFreeMarginPct);
+    const shortfall      = Math.max(0, grossNeeded - _preTransferPerpsBalance);
+    const transferAmount = parseFloat((shortfall * 1.02).toFixed(2));
+
+    if (transferAmount > 0) {
+      logger.info('[EXEC] Transferindo margem exata spot → perps (pós-aprovação)', {
+        signalId:        signal.signalId,
+        positionSizeUSD: tradeParams.positionSizeUSD.toFixed(2),
+        grossNeeded:     grossNeeded.toFixed(2),
+        existingPerps:   _preTransferPerpsBalance.toFixed(2),
+        transferAmount:  transferAmount.toFixed(2),
+      });
+      await ensureValiantPerpsMargin(transferAmount, signal.signalId);
+      // throws on failure → propagates to caller as execution failure (fail closed)
+      logger.info('[EXEC] Transferência concluída — prosseguindo para execução', {
+        signalId: signal.signalId,
+      });
+    }
   }
 
   // ── 3. Estimativa de custo (informativo, nunca bloqueia execução) ───────────

@@ -101,8 +101,8 @@ export const valiantAdapter = {
     });
     // ─────────────────────────────────────────────────────────────────────────
 
-    logger.info(`[VALIANT] Ajustando leverage: ${asset} → ${leverage}x`);
-    const levResult = await updateLeverage(assetIndex, leverage, true);
+    logger.info(`[VALIANT] Ajustando leverage: ${asset} → ${leverage}x (isolated)`);
+    const levResult = await updateLeverage(assetIndex, leverage, false); // false = isolated margin
     logger.info('[VALIANT] Leverage definida:', levResult);
 
     logger.info(`[VALIANT] Enviando ordem: ${direction} ${sizeInBase} ${asset} @ $${limitPx}`);
@@ -189,7 +189,7 @@ export const valiantAdapter = {
   },
 
   /**
-   * Close an open position via Hyperliquid (reduce-only IOC).
+   * Close an open position via Hyperliquid at market (reduce-only IOC).
    * Position lookup and order placement are delegated to hyperliquidClient.closePosition().
    *
    * @param {string} asset - e.g. 'SOL', 'BTC'
@@ -198,7 +198,7 @@ export const valiantAdapter = {
     const assetIndex = _resolveAssetIndex(asset);
 
     // ── PRE-CLOSE log ─────────────────────────────────────────────────────────
-    logger.info('[VALIANT] PRE-CLOSE', { asset, assetIndex });
+    logger.info('[VALIANT] PRE-CLOSE MARKET', { asset, assetIndex, orderType: 'market_ioc' });
     // ─────────────────────────────────────────────────────────────────────────
 
     const { orderId, raw } = await closePosition(assetIndex, asset);

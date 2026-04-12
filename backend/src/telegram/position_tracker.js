@@ -11,6 +11,7 @@ import {
 } from './ui/formatters.js';
 
 const HTML = { parse_mode: 'HTML', disable_web_page_preview: true };
+const CLOSE_CONFIRMATION_MISSES = 2;
 
 // ── Renderizadores ────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ export function startPositionTracker(bot, chatIds, options = {}) {
 
   /** @type {Map<string, PositionCard>} asset → card */
   const cards = new Map();
+  const missingCount = new Map();
 
   // ── Envio do card inicial ─────────────────────────────────────────────────
 
@@ -230,9 +232,20 @@ export function startPositionTracker(bot, chatIds, options = {}) {
   function detectClosures(currentAssets) {
     for (const [asset, card] of cards) {
       if (!currentAssets.has(asset)) {
+        const misses = (missingCount.get(asset) ?? 0) + 1;
+        missingCount.set(asset, misses);
+
+        if (misses < CLOSE_CONFIRMATION_MISSES) {
+          logger.warn(`[TRACKER] Posição ${asset} ausente no snapshot (${misses}/${CLOSE_CONFIRMATION_MISSES}) — mantendo card`);
+          continue;
+        }
+
+        missingCount.delete(asset);
         notifyClosed(card).catch(err =>
           logger.error(`[TRACKER] Erro em notifyClosed(${asset}): ${err.message}`)
         );
+      } else {
+        missingCount.delete(asset);
       }
     }
   }

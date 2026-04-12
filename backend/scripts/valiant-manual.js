@@ -23,7 +23,7 @@
 //
 // Notes:
 //   - LIMIT_PX for open must include your own slippage (e.g. markPrice * 1.02 for LONG)
-//   - close and reduce use far-side IOC prices (always fill if position exists)
+//   - close and reduce use current mid price plus the client slippage band
 //   - The script fails hard on any API error — no silent failures
 
 import dotenv from 'dotenv';
