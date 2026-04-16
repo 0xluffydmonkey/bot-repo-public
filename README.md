@@ -66,9 +66,10 @@ See [docs/en/paper-mode.md](docs/en/paper-mode.md) for full paper vs live behavi
 1. Monitors a private Telegram channel for formatted trade signals
 2. Parses signals: asset, direction, entry price, TP, SL, leverage
 3. Validates each signal through a 7-layer risk manager (leverage cap, R:R, balance, exposure, step size)
-4. Executes perpetual trades via the configured venue/backend when live mode is enabled
-5. Tracks open positions and sends PnL alerts via Telegram
-6. Accepts manual trading commands (open, close, reduce, TP/SL) from dashboard and Telegram
+4. Executes perpetual trades through `executeSignal` and `PerpExecutionService`; paper and live share this flow, with routing decided inside the execution layer
+5. Records trade audit data through fail-safe persistence when PostgreSQL/Supabase is configured
+6. Tracks open positions and sends PnL alerts via Telegram
+7. Accepts manual trading commands (open, close, reduce, TP/SL) from dashboard and Telegram
 
 Manual closes from Telegram or the web dashboard are intentional full market exits; on Valiant/Hyperliquid this is implemented with aggressive reduce-only IOC orders.
 
@@ -80,6 +81,10 @@ Manual closes from Telegram or the web dashboard are intentional full market exi
 |---------|---------|
 | `PAPER_TRADING=true` | Simulate trades, no real transactions |
 | `PAPER_TRADING=false` | Live trading with real funds |
+
+Mode is read from `PAPER_TRADING` in `backend/.env` / process env. Keep it consistent with the intended venue and database records: a wrong mode can produce incorrect persistence metadata.
+
+Persistence is optional and fail-safe. When configured, `trades` is the trade source of truth and `trade_events` records persistence events. `[PERSIST]` logs are the operational signal for database interaction; persistence failures do not block execution.
 
 Operational controls (changeable at runtime):
 

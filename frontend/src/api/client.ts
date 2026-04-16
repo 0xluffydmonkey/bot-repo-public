@@ -1,6 +1,16 @@
 import { normalizeSnapshot } from '@/lib/state-adapters';
 import type { BotState, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
+export type TradeAuditResult = {
+  ok: boolean;
+  bot_trade_ref: string;
+  trade: Record<string, unknown> | null;
+  events: Record<string, unknown>[];
+  orders: Record<string, unknown>[];
+  balance_snapshots: Record<string, unknown>[];
+  signal_decisions: Record<string, unknown>[];
+};
+
 function getApiToken() {
   if (typeof window === 'undefined') return null;
   const token = window.localStorage.getItem('trade-dashboard-api-token');
@@ -59,4 +69,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ asset, tp, sl }),
     }),
+  getTradeAudit: (botTradeRef: string) =>
+    request<TradeAuditResult>(`/api/audit/${encodeURIComponent(botTradeRef)}`),
 };

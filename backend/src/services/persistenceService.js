@@ -188,11 +188,21 @@ async function _recordEvent(eventType, context = {}) {
   // $3::jsonb: cast explícito evita ambiguidade de coerção text→jsonb no driver pg.
   const payloadJson = Object.keys(payload).length > 0 ? JSON.stringify(payload) : null;
 
-  await safeQuery(
+  // Tenta INSERT com coluna payload (schema v2).
+  // Fallback sem payload caso a coluna não exista na tabela — evita perda silenciosa
+  // de eventos quando a tabela foi criada antes da coluna payload ser adicionada.
+  const evtRes = await safeQuery(
     `INSERT INTO trade_events (event_type, bot_trade_ref, payload)
      VALUES ($1, $2, $3::jsonb)`,
     [eventType, bot_trade_ref, payloadJson]
   );
+  if (!evtRes) {
+    await safeQuery(
+      `INSERT INTO trade_events (event_type, bot_trade_ref)
+       VALUES ($1, $2)`,
+      [eventType, bot_trade_ref]
+    );
+  }
 }
 
 // ── _insertOrder ──────────────────────────────────────────────────────────────
@@ -211,12 +221,21 @@ async function _recordEvent(eventType, context = {}) {
 //   size           numeric — collateralUSD (USD, consistente com trades.size)
 //   price          numeric — fill price real (result.entry) ou entry_price solicitado
 //   status         text   — 'FILLED' (default)
-async function _insertOrder({ bot_trade_ref, order_id, venue, symbol, side, size, price, status = 'FILLED' }) {
-  await safeQuery(
-    `INSERT INTO orders (bot_trade_ref, order_id, venue, symbol, side, size, price, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [bot_trade_ref, order_id ?? null, venue, symbol, side, size ?? null, price ?? null, status]
+async function _insertOrder({ bot_trade_ref, order_id, trade_id, venue, symbol, side, size, price, status = 'FILLED' }) {
+  // Tenta INSERT com coluna trade_id (requer: ALTER TABLE orders ADD COLUMN IF NOT EXISTS trade_id uuid).
+  // Fallback sem trade_id se a coluna ainda não existir — garante que a ordem seja sempre gravada.
+  const ordRes = await safeQuery(
+    `INSERT INTO orders (bot_trade_ref, order_id, trade_id, venue, symbol, side, size, price, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [bot_trade_ref, order_id ?? null, trade_id ?? null, venue, symbol, side, size ?? null, price ?? null, status]
   );
+  if (!ordRes) {
+    await safeQuery(
+      `INSERT INTO orders (bot_trade_ref, order_id, venue, symbol, side, size, price, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [bot_trade_ref, order_id ?? null, venue, symbol, side, size ?? null, price ?? null, status]
+    );
+  }
 }
 
 // ── _insertBalanceSnapshot ────────────────────────────────────────────────────
@@ -365,6 +384,7 @@ export const persistenceService = {
         await _insertOrder({
           bot_trade_ref: ref,
           order_id:      orderId,
+          trade_id:      id,       // UUID do registro em trades — disponível após RETURNING id
           venue,
           symbol,
           side,
@@ -490,9 +510,67 @@ export const persistenceService = {
       _botTradeRefs.delete(mapKey);
       logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'} rows=${rowsAffected}`);
       await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue });
+
+      // ── Persiste ordem de fechamento (best-effort) ───────────────────────
+      // Registrada apenas quando bot_trade_ref está disponível — garante ligação
+      // correta ao trade pai sem ambiguidade.
+      // side='CLOSE' indica ordem de saída (independente de LONG/SHORT original).
+      // order_id e trade_id não estão disponíveis neste contexto sem tocar nos callers.
+      if (botTradeRef != null) {
+        await _insertOrder({
+          bot_trade_ref: botTradeRef,
+          order_id:      null,   // exchange close order ID não é passado pelos callers atuais
+          trade_id:      tradeId ?? null,
+          venue,
+          symbol:        symbolUpper,
+          side:          'CLOSE',
+          size:          null,
+          price:         exit_price,
+          status:        'FILLED',
+        });
+        logger.info(`[PERSIST] Close order registrada — ref=${botTradeRef} venue=${venue} symbol=${symbolUpper} price=${exit_price}`);
+      }
+      // ─────────────────────────────────────────────────────────────────────
     } else {
       logger.warn(`[PERSIST] Trade close update afetou 0 rows — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'}`);
       await _recordEvent('TRADE_PERSIST_FAILED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, error: 'UPDATE trades afetou 0 rows' });
     }
+  },
+
+  /**
+   * Retorna todos os registros auditáveis vinculados a um bot_trade_ref.
+   * Leitura pura — nunca modifica dados.
+   * Retorna null se botTradeRef for vazio ou se o pool estiver indisponível.
+   * Cada sub-array é [] quando a tabela não contém registros para o ref.
+   *
+   * @param {string} botTradeRef
+   * @returns {Promise<{
+   *   bot_trade_ref: string,
+   *   trade: object|null,
+   *   events: object[],
+   *   orders: object[],
+   *   balance_snapshots: object[],
+   *   signal_decisions: object[]
+   * }|null>}
+   */
+  async getTradeAuditByRef(botTradeRef) {
+    if (!botTradeRef) return null;
+
+    const [tradeRes, eventsRes, ordersRes, balanceRes, decisionsRes] = await Promise.all([
+      safeQuery(`SELECT * FROM trades           WHERE bot_trade_ref = $1 LIMIT 1`,                          [botTradeRef]),
+      safeQuery(`SELECT * FROM trade_events     WHERE bot_trade_ref = $1 ORDER BY created_at ASC`,           [botTradeRef]),
+      safeQuery(`SELECT * FROM orders           WHERE bot_trade_ref = $1 ORDER BY created_at ASC`,           [botTradeRef]),
+      safeQuery(`SELECT * FROM balance_snapshots WHERE bot_trade_ref = $1 ORDER BY created_at ASC`,          [botTradeRef]),
+      safeQuery(`SELECT * FROM signal_decisions  WHERE bot_trade_ref = $1 ORDER BY created_at ASC`,          [botTradeRef]),
+    ]);
+
+    return {
+      bot_trade_ref:    botTradeRef,
+      trade:            tradeRes?.rows?.[0]  ?? null,
+      events:           eventsRes?.rows       ?? [],
+      orders:           ordersRes?.rows       ?? [],
+      balance_snapshots: balanceRes?.rows     ?? [],
+      signal_decisions: decisionsRes?.rows    ?? [],
+    };
   },
 };

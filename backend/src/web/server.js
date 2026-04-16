@@ -11,6 +11,7 @@ import state from '../core/state.js';
 import logger from '../utils/logger.js';
 import { resolveCloseVenue } from '../trading/closeVenueResolver.js';
 import { openManualTrade, updateManualTpSl, reduceManualTrade } from '../trading/ManualTradeService.js';
+import { persistenceService } from '../services/persistenceService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -87,6 +88,16 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
 
   // ── REST: consultas ────────────────────────────────────────────────────────
   app.get('/api/state', (_req, res) => res.json(state.getSnapshot()));
+
+  // Retorna auditoria consolidada de um trade por bot_trade_ref.
+  // Leitura pura — sem autenticação (mesma política de /api/state).
+  // Retorna 404 quando o ref não corresponde a nenhum trade no banco.
+  app.get('/api/audit/:botTradeRef', async (req, res) => {
+    const { botTradeRef } = req.params;
+    const audit = await persistenceService.getTradeAuditByRef(botTradeRef);
+    if (!audit || !audit.trade) return res.status(404).json({ ok: false, error: 'Trade não encontrado para este bot_trade_ref' });
+    res.json({ ok: true, ...audit });
+  });
 
   // ── REST: controles ────────────────────────────────────────────────────────
   app.post('/api/pause', requireActionAuth, (_req, res) => {

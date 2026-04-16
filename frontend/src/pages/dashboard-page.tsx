@@ -7,12 +7,14 @@ import {
   TrendingUp,
   Receipt,
   Terminal,
+  FileSearch,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { AnalyticsPanel, PerformancePanel, FeesPanel } from '@/components/charts/analytics-panel';
 import { ControlPanel, CompactControls } from '@/components/controls/control-panel';
 import { ManualTradePanel } from '@/components/controls/manual-trade-panel';
 import { LogStream } from '@/components/logs/log-stream';
+import { TradeAuditPanel } from '@/components/audit/trade-audit-panel';
 import { HeroStats } from '@/components/metrics/hero-stats';
 import { PositionsTable } from '@/components/positions/positions-table';
 import { AlertsPanel } from '@/components/status/alerts-panel';
@@ -26,6 +28,7 @@ const tabs = [
   { id: 'performance', label: 'Performance', icon: TrendingUp },
   { id: 'fees', label: 'Fees', icon: Receipt },
   { id: 'logs', label: 'Logs', icon: Terminal },
+  { id: 'audit', label: 'Auditoria', icon: FileSearch },
 ];
 
 export function DashboardPage() {
@@ -205,6 +208,16 @@ export function DashboardPage() {
               animate={{ opacity: 1, y: 0 }}
             >
               <LogStream logs={localLogs} onClear={clearLocalLogs} />
+            </motion.div>
+          </TabsContent>
+
+          {/* Audit Tab */}
+          <TabsContent value="audit">
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <TradeAuditPanel />
             </motion.div>
           </TabsContent>
         </Tabs>

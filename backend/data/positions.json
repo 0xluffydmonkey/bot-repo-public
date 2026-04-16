@@ -1,12 +1,12 @@
 {
-  "BTC": {
-    "direction": "SHORT",
-    "entryPrice": 74132.9,
-    "highestPrice": 74454.00000000001,
-    "lowestPrice": 73829,
-    "stopPrice": 77520.45,
+  "SOL": {
+    "direction": "LONG",
+    "entryPrice": 85.57,
+    "highestPrice": 87.1874,
+    "lowestPrice": 83.8587,
+    "stopPrice": null,
     "alerted": false,
-    "venue": "valiant",
-    "bot_trade_ref": null
+    "venue": "paper",
+    "bot_trade_ref": "5e083bb8-9d90-48ee-9a77-e0232a27b28c"
   }
 }
