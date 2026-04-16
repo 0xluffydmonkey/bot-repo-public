@@ -11,6 +11,7 @@ import { startTelegramListener } from "./telegram/telegram_listener.js";
 import { fetchAccountData }      from "./monitor/data_fetcher.js";
 import { signalStore } from "./utils/signal_store.js";
 import state from "./core/state.js";
+import { persistenceService } from "./services/persistenceService.js";
 
 // ─── Flags CLI → variáveis de ambiente (backward compat) ──────────────────────
 // The canonical way to activate modules is via .env (ENABLE_WEB, ENABLE_CONTROL_BOT,
@@ -299,7 +300,12 @@ function registerCommandHandlers() {
     }
     logger.info(`[BOT] 🔒 Comando: fechar ${asset} a mercado (venue: ${resolvedVenue})`);
     try {
+      // Captura posição antes do await — poller pode atualizar state.positions durante a execução
+      const _closePos = state.positions.find(p => p.asset === asset?.toUpperCase());
       await perpService.closeTrade(asset, resolvedVenue);
+      if (_closePos?.venue) {
+        persistenceService.recordTradeClosed(asset, _closePos.venue, _closePos.bot_trade_ref ?? null).catch(() => {});
+      }
       logger.info(`[BOT] ✅ Posição ${asset} fechada via comando`);
     } catch (err) {
       logger.error(`[BOT] ❌ Falha ao fechar ${asset}: ${err.message}`);
@@ -318,7 +324,19 @@ function registerCommandHandlers() {
     }
     logger.info(`[BOT] 🔒 Comando: fechar TODAS as posições a mercado (venue: ${resolvedVenue})`);
     try {
+      // Snapshot de posições antes do await — poller pode atualizar state.positions durante a execução
+      const _posSnapshot = [...state.positions];
       const results = await perpService.closeAllTrades(resolvedVenue);
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          if (r?.success && r?.asset) {
+            const _pos = _posSnapshot.find(p => p.asset === r.asset.toUpperCase());
+            if (_pos?.venue) {
+              persistenceService.recordTradeClosed(r.asset, _pos.venue, _pos.bot_trade_ref ?? null).catch(() => {});
+            }
+          }
+        }
+      }
       const ok = Array.isArray(results) ? results.filter(r => r.success).length : '?';
       const total = Array.isArray(results) ? results.length : '?';
       logger.info(`[BOT] ✅ Close all: ${ok}/${total} fechadas`);
@@ -392,6 +410,10 @@ async function main() {
 
   validateConfig();
   logger.info(`[BOT] Configurações validadas ✓`);
+
+  // Persistência opcional — nunca bloqueia o boot se banco indisponível
+  await persistenceService.init();
+
   logger.info('[BOT] Runtime', {
     nodeVersion: process.version,
     cwd: process.cwd(),

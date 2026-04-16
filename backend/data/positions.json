@@ -1,11 +1,11 @@
 {
   "SOL": {
     "direction": "SHORT",
-    "entryPrice": 82.568,
-    "highestPrice": 82.715,
-    "lowestPrice": 82.535,
+    "entryPrice": 83.08,
+    "highestPrice": 84.717,
+    "lowestPrice": 81.4333,
     "stopPrice": null,
     "alerted": false,
-    "venue": "valiant"
+    "venue": "paper"
   }
 }

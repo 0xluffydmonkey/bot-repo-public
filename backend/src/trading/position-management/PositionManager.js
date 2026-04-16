@@ -22,6 +22,7 @@ import { telegramAlertService } from './TelegramService.js';
 import { savePositionTracking, loadPositionTracking } from './PositionStore.js';
 import { perpService } from '../PerpExecutionService.js';
 import { resolveCloseVenue } from '../closeVenueResolver.js';
+import { persistenceService } from '../../services/persistenceService.js';
 
 const DEBOUNCE_MS = 1_000; // max one trailing update per asset per second
 const CLOSE_CONFIRMATION_MISSES = 2;
@@ -97,6 +98,20 @@ class PositionManager {
       savePositionTracking(this._tracking);
     }
 
+    // Inject bot_trade_ref from disk-restored tracking into position objects.
+    // This handles restarts: persistenceService._botTradeRefs is empty after restart,
+    // but _tracking was loaded from disk and may carry the ref. Running before
+    // _processPosition ensures the ref is visible when tracking is first created.
+    for (const pos of positions) {
+      if (pos.bot_trade_ref == null) {
+        const ref = this._tracking.get(pos.asset)?.bot_trade_ref;
+        if (ref != null) {
+          pos.bot_trade_ref = ref;
+          logger.info(`[PM] position restored with bot_trade_ref — ${pos.asset} ref=${ref}`);
+        }
+      }
+    }
+
     for (const position of positions) {
       try {
         this._processPosition(position);
@@ -120,21 +135,25 @@ class PositionManager {
     if (!this._tracking.has(asset)) {
       const initial = {
         direction,
-        entryPrice:   entryPrice ?? markPrice,
-        highestPrice: markPrice,
-        lowestPrice:  markPrice,
-        stopPrice:    null,
-        alerted:      false,
+        entryPrice:    entryPrice ?? markPrice,
+        highestPrice:  markPrice,
+        lowestPrice:   markPrice,
+        stopPrice:     null,
+        alerted:       false,
         venue,
+        // bot_trade_ref injected by persistenceService (same-process) or by
+        // the restart injection loop above (from disk). null if neither is available.
+        bot_trade_ref: position.bot_trade_ref ?? null,
       };
       this._tracking.set(asset, initial);
       savePositionTracking(this._tracking);
-      logger.info(`[PM] Iniciando tracking: ${direction} ${asset} @ $${entryPrice ?? markPrice}`, {
-        event: 'trade_open',
+      logger.info(`[PM] position created with bot_trade_ref — ${direction} ${asset} @ $${entryPrice ?? markPrice}`, {
+        event:         'trade_open',
         asset,
         direction,
-        entryPrice: entryPrice ?? markPrice,
+        entryPrice:    entryPrice ?? markPrice,
         venue,
+        bot_trade_ref: position.bot_trade_ref ?? null,
       });
     }
     this._missingCount.delete(asset);
@@ -265,7 +284,9 @@ class PositionManager {
     }
 
     this._closing.add(asset);
-    const trackedVenue = this._tracking.get(asset)?.venue ?? null;
+    const trackedEntry = this._tracking.get(asset);
+    const trackedVenue = trackedEntry?.venue ?? null;
+    const botTradeRef  = trackedEntry?.bot_trade_ref ?? null;
     const { venue, source } = resolveCloseVenue(asset, trackedVenue, { allowActiveFallback: false });
     if (source === 'unresolved') {
       const err = new Error(`Venue não resolvida para trailing close de ${asset}; fechamento recusado por segurança`);
@@ -280,6 +301,7 @@ class PositionManager {
     perpService.closeTrade(asset, venue)
       .then(() => {
         logger.info(`[PM] Close concluído — ${asset}`);
+        persistenceService.recordTradeClosed(asset, venue, botTradeRef).catch(() => {});
       })
       .catch(err => {
         logger.error(`[PM] Falha ao fechar ${asset}: ${err.message}`);

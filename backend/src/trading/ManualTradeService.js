@@ -8,6 +8,7 @@
 // Compatível com PAPER_TRADING, respeita o risk manager em todas as operações.
 // Não duplica lógica — não cria executor paralelo — não bypassa validações.
 
+import { randomUUID } from 'crypto';
 import logger from '../utils/logger.js';
 import { validateSignal } from '../parser/signal_parser.js';
 import { calculateTradeParams } from '../risk/risk_manager.js';
@@ -17,6 +18,7 @@ import { config } from '../config/index.js';
 import state from '../core/state.js';
 import { resolveCloseVenue } from './closeVenueResolver.js';
 import { ensureValiantPerpsMargin, getValiantSpotUSDC } from './valiantAutoTransfer.js';
+import { persistenceService } from '../services/persistenceService.js';
 
 /** Resolve the venue for a position from state.positions, or null if not tracked. */
 function resolvePositionVenue(asset) {
@@ -234,6 +236,24 @@ export async function executeSignal(signal, opts = {}) {
   const result = await perpService.openTrade(tradeParams);  // lança se falhar
   state.signalExecuted(signal, result);
 
+  // ── Persistência: registrar abertura (desacoplado — nunca bloqueia execução) ──
+  // bot_trade_ref é gerado aqui e injetado em state.positions via listener
+  // 'positions:update' em persistenceService.init() — disponível nos snapshots
+  // de posição capturados antes de qualquer close, mesmo após restart do processo.
+  const _botTradeRef = randomUUID();
+  persistenceService.recordTradeOpened({
+    symbol:        tradeParams.asset,
+    side:          tradeParams.direction,
+    mode:          config.trading.paperMode ? 'paper' : 'live',
+    source:        signal.source || 'auto',
+    venue:         config.trading.paperMode ? 'paper' : activeVenue,
+    entry_price:   tradeParams.entry,
+    size:          tradeParams.notionalValueUSD,
+    leverage:      tradeParams.leverage,
+    bot_trade_ref: _botTradeRef,
+  }).catch(() => {}); // safeQuery interno nunca lança; catch por robustez extra
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── TP/SL protection check — surface failure to dashboard / Telegram ─────────
   // Only applies when: live mode + venue returned a tpsl field (Valiant/Hyperliquid)
   // + TP or SL was requested + placement returned nothing.
@@ -342,7 +362,12 @@ export async function closeManualTrade(asset, venue = null) {
   }
   logger.info(`[MANUAL] Fechando posição: ${asset}`, { venue: resolvedVenue });
   try {
+    // Captura posição antes do await — poller pode atualizar state.positions durante a execução
+    const _closePos = state.positions.find(p => p.asset === asset?.toUpperCase());
     const txSig = await perpService.closeTrade(asset, resolvedVenue);
+    if (_closePos?.venue) {
+      persistenceService.recordTradeClosed(asset, _closePos.venue, _closePos.bot_trade_ref ?? null).catch(() => {});
+    }
     logger.info(`[MANUAL] ✅ Posição ${asset} fechada`);
     return { success: true, txSig };
   } catch (err) {
@@ -367,7 +392,19 @@ export async function closeAllManualTrades(venue = null) {
   }
   logger.info(`[MANUAL] Fechando todas as posições`, { venue: resolvedVenue });
   try {
+    // Snapshot de posições antes do await — poller pode atualizar state.positions durante a execução
+    const _posSnapshot = [...state.positions];
     const results = await perpService.closeAllTrades(resolvedVenue);
+    if (Array.isArray(results)) {
+      for (const r of results) {
+        if (r?.success && r?.asset) {
+          const _pos = _posSnapshot.find(p => p.asset === r.asset.toUpperCase());
+          if (_pos?.venue) {
+            persistenceService.recordTradeClosed(r.asset, _pos.venue, _pos.bot_trade_ref ?? null).catch(() => {});
+          }
+        }
+      }
+    }
     const ok    = Array.isArray(results) ? results.filter(r => r.success).length : '?';
     const total = Array.isArray(results) ? results.length : '?';
     logger.info(`[MANUAL] ✅ Close all: ${ok}/${total} fechadas`);

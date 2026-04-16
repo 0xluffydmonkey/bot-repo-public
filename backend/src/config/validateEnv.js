@@ -128,6 +128,13 @@ const BANNED_RAW_SECRETS = [
     path: 'VALIANT_MAIN_KEY_PATH',
     hint: 'Escreva o private key EVM da conta principal (0x-prefixed hex, 32 bytes) no arquivo.',
   },
+  // Persistência — connection string PostgreSQL (Supabase ou qualquer PG compatível).
+  // Nunca expor a URL diretamente em variável de ambiente.
+  {
+    raw:  'SUPABASE_DB_URL',
+    path: 'SUPABASE_DB_URL_PATH',
+    hint: 'Escreva a connection string PostgreSQL no arquivo (postgresql://user:pass@host/db).',
+  },
 ];
 
 export function validateEnv() {
