@@ -250,8 +250,9 @@ export async function executeSignal(signal, opts = {}) {
     entry_price:   tradeParams.entry,
     size:          tradeParams.notionalValueUSD,
     leverage:      tradeParams.leverage,
-    bot_trade_ref: _botTradeRef,
-  }).catch(() => {}); // safeQuery interno nunca lança; catch por robustez extra
+    bot_trade_ref:    _botTradeRef,
+    pre_trade_equity: walletBalance,
+  }, result).catch(() => {}); // safeQuery interno nunca lança; catch por robustez extra
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── TP/SL protection check — surface failure to dashboard / Telegram ─────────

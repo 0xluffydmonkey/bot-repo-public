@@ -92,6 +92,22 @@ TELEGRAM_PHONE=+5511999999999
 
 Add backend-specific RPC/API credentials only when your selected backend requires them.
 
+For optional PostgreSQL/Supabase persistence, store the connection string in a separate file and reference it by path:
+
+File: `/opt/bot/secrets/supabase-db-url.txt`
+
+```env
+postgresql://user:password@host:port/database
+```
+
+File: `/opt/bot/secrets/bot-secrets.env`
+
+```env
+SUPABASE_DB_URL_PATH=/opt/bot/secrets/supabase-db-url.txt
+```
+
+The implemented persistence layer uses `trades` as the trade source of truth and `trade_events` as the event tracking layer. Persistence is fail-safe: database errors are logged with `[PERSIST]` and do not block execution.
+
 If `ENABLE_CONTROL_BOT=true`:
 
 File: `/opt/bot/secrets/bot-secrets.env`
@@ -194,6 +210,7 @@ For Valiant/Hyperliquid, after opening a live position:
 - Confirm SL is present in the venue UI.
 - If TP/SL are missing, treat the position as unprotected and set them manually or close it.
 - Check logs for `[HL] TP wire`, `[HL] SL wire`, and `[VALIANT] TP/SL placement falhou`.
+- If persistence is enabled, check `[PERSIST]` logs for database connectivity, trade open/close rows, and `trade_events` writes.
 
 ---
 

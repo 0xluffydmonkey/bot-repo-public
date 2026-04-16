@@ -16,7 +16,7 @@
 // SE SUPABASE_DB_URL_PATH NÃO ESTIVER DEFINIDO:
 //   Persistência é silenciosamente desabilitada. O bot opera normalmente.
 //
-// SCHEMA DA TABELA (fonte da verdade — não alterar o código para contradizer isso):
+// SCHEMA — trades (fonte da verdade):
 // ─────────────────────────────────────────────────────────────────────────────
 //   create table trades (
 //     id            uuid primary key default gen_random_uuid(),
@@ -37,10 +37,23 @@
 //     closed_at     timestamp,
 //     created_at    timestamp not null default now()
 //   );
+//   -- migração: ALTER TABLE trades ADD COLUMN bot_trade_ref text unique;
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// MIGRAÇÃO — adicionar bot_trade_ref a uma tabela existente:
-//   ALTER TABLE trades ADD COLUMN bot_trade_ref text unique;
+// SCHEMA — trade_events (trilha leve de auditoria):
+// ─────────────────────────────────────────────────────────────────────────────
+//   create table trade_events (
+//     id            uuid primary key default gen_random_uuid(),
+//     event_type    text not null,
+//     bot_trade_ref text,              -- nullable: desconhecido em closes pós-restart
+//     payload       jsonb,             -- contexto mínimo sanitizado; null quando vazio
+//     occurred_at   timestamp not null default now()
+//   );
+//
+//   event_type válidos (sem CHECK constraint — extensível):
+//     TRADE_OPEN_REQUESTED | TRADE_OPEN_PERSISTED
+//     TRADE_CLOSE_REQUESTED | TRADE_CLOSE_PERSISTED
+//     TRADE_PERSIST_FAILED
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { readFileSync } from 'fs';
@@ -137,6 +150,108 @@ async function safeQuery(sql, params) {
   }
 }
 
+// ── Trade Events (trilha de auditoria leve) ───────────────────────────────────
+//
+// Grava um evento pontual na tabela trade_events.
+// Nunca lança exceção — safeQuery absorve qualquer falha silenciosamente.
+//
+// Colunas usadas no INSERT:
+//   event_type    text not null
+//   bot_trade_ref text (nullable — desconhecido em REQUESTED antes do INSERT)
+//   payload       jsonb (contexto mínimo sanitizado: symbol, venue, mode, error)
+//
+// Se a tabela não tiver a coluna `payload`, remova-a do INSERT abaixo.
+// Se `event_type` tiver CHECK constraint, certifique-se que os 5 valores
+// abaixo estão na lista permitida.
+//
+// event_type válidos:
+//   TRADE_OPEN_REQUESTED | TRADE_OPEN_PERSISTED
+//   TRADE_CLOSE_REQUESTED | TRADE_CLOSE_PERSISTED
+//   TRADE_PERSIST_FAILED
+async function _recordEvent(eventType, context = {}) {
+  const {
+    bot_trade_ref = null,
+    symbol        = null,
+    venue         = null,
+    mode          = null,
+    error         = null,
+  } = context;
+
+  const payload = {};
+  if (symbol !== null) payload.symbol = symbol;
+  if (venue  !== null) payload.venue  = venue;
+  if (mode   !== null) payload.mode   = mode;
+  // Erro truncado a 500 chars — evita stack traces e dados acidentais
+  if (error  !== null) payload.error  = String(error).slice(0, 500);
+
+  // Passa null quando não há contexto útil — evita gravar '{}' desnecessariamente.
+  // $3::jsonb: cast explícito evita ambiguidade de coerção text→jsonb no driver pg.
+  const payloadJson = Object.keys(payload).length > 0 ? JSON.stringify(payload) : null;
+
+  await safeQuery(
+    `INSERT INTO trade_events (event_type, bot_trade_ref, payload)
+     VALUES ($1, $2, $3::jsonb)`,
+    [eventType, bot_trade_ref, payloadJson]
+  );
+}
+
+// ── _insertOrder ──────────────────────────────────────────────────────────────
+//
+// Insere uma linha na tabela `orders` com os dados reais de execução retornados
+// pelo adapter (fill price real, exchange order ID).
+// Nunca lança exceção — safeQuery absorve qualquer falha silenciosamente.
+// Se a tabela não existir, o INSERT falha silenciosamente sem impacto no runtime.
+//
+// Campos:
+//   bot_trade_ref  text   — mesmo ref do trade pai na tabela trades
+//   order_id       text   — ID da ordem na exchange (signatures.marketOrder)
+//   venue          text
+//   symbol         text
+//   side           text   — 'LONG' | 'SHORT'
+//   size           numeric — collateralUSD (USD, consistente com trades.size)
+//   price          numeric — fill price real (result.entry) ou entry_price solicitado
+//   status         text   — 'FILLED' (default)
+async function _insertOrder({ bot_trade_ref, order_id, venue, symbol, side, size, price, status = 'FILLED' }) {
+  await safeQuery(
+    `INSERT INTO orders (bot_trade_ref, order_id, venue, symbol, side, size, price, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [bot_trade_ref, order_id ?? null, venue, symbol, side, size ?? null, price ?? null, status]
+  );
+}
+
+// ── _insertBalanceSnapshot ────────────────────────────────────────────────────
+//
+// Insere um snapshot de saldo no momento da abertura do trade.
+// equity e available_balance = freeCollateral pré-trade (walletBalance no caller).
+//   Nota: em live Drift, totalEquity > freeCollateral quando há PnL não realizado.
+//   Aqui usamos freeCollateral — é o número que o risk manager usou para sizing.
+//   Em Valiant, pode incluir spot USDC (equityOverride combinado).
+// used_balance = collateralUSD alocado neste trade específico.
+// Nunca lança exceção — safeQuery absorve qualquer falha silenciosamente.
+async function _insertBalanceSnapshot({ bot_trade_ref, mode, venue, equity, available_balance, used_balance }) {
+  await safeQuery(
+    `INSERT INTO balance_snapshots (bot_trade_ref, mode, venue, equity, available_balance, used_balance)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [bot_trade_ref, mode ?? null, venue, equity ?? null, available_balance ?? null, used_balance ?? null]
+  );
+}
+
+// ── _insertSignalDecision ─────────────────────────────────────────────────────
+//
+// Persiste a decisão de execução associada a uma abertura de trade.
+// Chamado apenas dentro do caminho de sucesso de recordTradeOpened (id != null),
+// portanto decision é sempre 'APPROVED' nesta v1.
+// Rejeições (bot_paused, risk_manager, insufficient_balance) não têm bot_trade_ref
+// disponível e são tratadas em index.js antes de executeSignal — fora do escopo desta v1.
+// Nunca lança exceção — safeQuery absorve qualquer falha silenciosamente.
+async function _insertSignalDecision({ bot_trade_ref, symbol, side, decision, reason, source }) {
+  await safeQuery(
+    `INSERT INTO signal_decisions (bot_trade_ref, symbol, side, decision, reason, source)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [bot_trade_ref, symbol, side, decision, reason ?? null, source ?? null]
+  );
+}
+
 // ── PersistenceService ────────────────────────────────────────────────────────
 
 export const persistenceService = {
@@ -195,11 +310,12 @@ export const persistenceService = {
    *
    * @returns {Promise<string|null>} UUID do registro inserido, ou null se falhou
    */
-  async recordTradeOpened(data) {
+  async recordTradeOpened(data, execResult = null) {
     const {
       symbol, side, mode, source, venue,
       entry_price, size, leverage,
       bot_trade_ref,
+      pre_trade_equity,
     } = data;
 
     const mapKey = `${venue}:${symbol.toUpperCase()}`;
@@ -208,6 +324,8 @@ export const persistenceService = {
     // Registra o ref imediatamente — disponível para o listener positions:update
     // mesmo que o INSERT falhe (ex: banco indisponível).
     _botTradeRefs.set(mapKey, ref);
+
+    await _recordEvent('TRADE_OPEN_REQUESTED', { bot_trade_ref: ref, symbol, venue, mode });
 
     const result = await safeQuery(
       `INSERT INTO trades (
@@ -234,6 +352,60 @@ export const persistenceService = {
     if (id != null) {
       _openTradeIds.set(mapKey, id);
       logger.info(`[PERSIST] Trade aberto registrado — id=${id} ref=${ref} venue=${venue} symbol=${symbol} side=${side}`);
+      await _recordEvent('TRADE_OPEN_PERSISTED', { bot_trade_ref: ref, symbol, venue, mode });
+
+      // ── Persiste ordem de execução (best-effort) ──────────────────────────
+      // Chamado apenas quando o trade foi persistido com sucesso E execResult
+      // foi passado pelo caller. Falha silenciosa via safeQuery.
+      // size em USD (collateralUSD) — consistente com trades.size.
+      if (execResult != null) {
+        const orderPrice = execResult.entry          ?? entry_price  ?? null;
+        const orderSize  = execResult.collateralUSD  ?? size         ?? null;
+        const orderId    = execResult.signatures?.marketOrder        ?? null;
+        await _insertOrder({
+          bot_trade_ref: ref,
+          order_id:      orderId,
+          venue,
+          symbol,
+          side,
+          size:          orderSize,
+          price:         orderPrice,
+        });
+        logger.info(`[PERSIST] Order registrada — ref=${ref} order_id=${orderId} price=${orderPrice} size=${orderSize}`);
+
+        // ── Balance snapshot ──────────────────────────────────────────────
+        // pre_trade_equity = freeCollateral pré-trade (walletBalance no caller).
+        // Só registrado quando disponível — callers legados sem esse campo
+        // continuam funcionando normalmente (pre_trade_equity === undefined → null).
+        if (pre_trade_equity != null) {
+          await _insertBalanceSnapshot({
+            bot_trade_ref:     ref,
+            mode,
+            venue,
+            equity:            pre_trade_equity,
+            available_balance: pre_trade_equity,
+            used_balance:      execResult.collateralUSD ?? null,
+          });
+          logger.info(`[PERSIST] Balance snapshot registrado — ref=${ref} equity=${pre_trade_equity} used=${execResult.collateralUSD ?? null}`);
+        }
+        // ─────────────────────────────────────────────────────────────────
+      }
+
+      // ── Signal decision (APPROVED-only v1) ───────────────────────────────
+      // Chamado incondicionalmente dentro do bloco if (id != null) — a decisão
+      // é sempre APPROVED aqui, pois recordTradeOpened só é chamado após execução
+      // bem-sucedida. Rejeições não chegam a este ponto.
+      await _insertSignalDecision({
+        bot_trade_ref: ref,
+        symbol,
+        side,
+        decision:      'APPROVED',
+        reason:        'trade_executed',
+        source,
+      });
+      // ─────────────────────────────────────────────────────────────────────
+    } else {
+      await _recordEvent('TRADE_PERSIST_FAILED', { bot_trade_ref: ref, symbol, venue, mode, error: 'INSERT trades retornou null id' });
     }
 
     return id;
@@ -270,6 +442,8 @@ export const persistenceService = {
     const pos          = state.positions.find(p => p.asset === symbolUpper && p.venue === venue);
     const exit_price   = pos?.markPrice ?? null;
     const realized_pnl = pos?.pnlUSD   ?? null;
+
+    await _recordEvent('TRADE_CLOSE_REQUESTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue });
 
     let result;
 
@@ -315,8 +489,10 @@ export const persistenceService = {
       _openTradeIds.delete(mapKey);
       _botTradeRefs.delete(mapKey);
       logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'} rows=${rowsAffected}`);
+      await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue });
     } else {
       logger.warn(`[PERSIST] Trade close update afetou 0 rows — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'}`);
+      await _recordEvent('TRADE_PERSIST_FAILED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, error: 'UPDATE trades afetou 0 rows' });
     }
   },
 };

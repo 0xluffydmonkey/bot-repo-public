@@ -89,6 +89,11 @@ Telegram channel (signals)
 │ paper  │  │ live adapter│  backend-specific SDK/API
 │ engine │  │ (venue-based│  → signs/submits order
 └────────┘  └─────────────┘
+         │
+         ▼
+┌──────────────────────┐
+│ persistenceService   │  Fail-safe trade audit: trades + trade_events
+└──────────────────────┘
 
 ┌──────────────────────────────────────────────┐
 │            STATE STORE (EventEmitter)         │
@@ -115,10 +120,77 @@ Telegram channel (signals)
 | Paper engine | `src/trading/paperEngine.js` | In-memory paper trading simulation |
 | Venue adapters | `src/trading/adapters/` | Backend-specific execution integrations |
 | Manual trade service | `src/trading/ManualTradeService.js` | Manual open, close, reduce, TP/SL |
+| Persistence service | `src/services/persistenceService.js` | Fail-safe trade persistence and trade event audit |
 | Position manager | `src/trading/position-management/PositionManager.js` | PnL alerts, trailing stop |
 | Web server | `src/web/server.js` | Express + Socket.IO dashboard + REST API |
 | Control bot | `src/telegram/telegram_control.js` | Telegram bot with InlineKeyboard |
 | Logger | `src/utils/logger.js` | Winston + daily rotation |
+
+---
+
+## Execution and persistence flow
+
+Signal and manual opens share the same execution core:
+
+```text
+Signal / Manual -> executeSignal -> PerpExecutionService -> persistenceService
+```
+
+`ManualTradeService.executeSignal()` performs venue capability checks, balance/risk validation, optional cost logging, execution through `perpService.openTrade()`, and then calls `persistenceService.recordTradeOpened()` asynchronously. Paper and live use the same high-level flow; the difference happens inside `PerpExecutionService`, which routes paper mode to `paperEngine` and live mode to the active venue adapter.
+
+Close paths capture the current position snapshot, execute through `PerpExecutionService`, and then call `persistenceService.recordTradeClosed()` when a tracked position is available.
+
+Persistence is intentionally fail-safe: `safeQuery()` never throws, persistence calls are detached from execution, and database failures are logged but do not block trade execution.
+
+---
+
+## Modes and persistence risk
+
+Mode is derived from `PAPER_TRADING` in `src/config/index.js`:
+
+| Env | Runtime mode |
+|-----|--------------|
+| `PAPER_TRADING=true` | `paper` |
+| `PAPER_TRADING=false` | `live` |
+
+In paper mode, `PerpExecutionService` routes execution, close, balance, snapshot, reduce, and TP/SL calls to `paperEngine`. In live mode, it routes those calls to the active venue adapter.
+
+Critical: keep `PAPER_TRADING`, venue configuration, and operator expectations aligned. Mode inconsistency can write incorrect `mode` or `venue` metadata to persistence.
+
+---
+
+## Data model
+
+The implemented persistence layer uses only these database tables:
+
+| Table | Role |
+|-------|------|
+| `trades` | Source of truth for trade rows, including `bot_trade_ref`, status, mode, source, venue, prices, size, leverage, and realized PnL |
+| `trade_events` | Event tracking layer for persistence lifecycle events |
+
+Current event types emitted by `persistenceService`:
+
+- `TRADE_OPEN_REQUESTED`
+- `TRADE_OPEN_PERSISTED`
+- `TRADE_CLOSE_REQUESTED`
+- `TRADE_CLOSE_PERSISTED`
+- `TRADE_PERSIST_FAILED`
+
+No other database tables are part of the implemented persistence layer in this backend reference.
+
+---
+
+## Observability
+
+Persistence logs use the `[PERSIST]` prefix. Inspect these logs to confirm database connectivity, insert/update success, fallback close paths, and zero-row updates.
+
+`safeQuery()` swallows database errors by design and returns `null`; this keeps trading execution running but makes log inspection mandatory when validating persistence.
+
+Known limitations:
+
+- `trade_events` depends on database availability and schema correctness.
+- persistence failures are non-fatal and can be silent from the operator UI unless logs are inspected.
+- mode or venue misconfiguration can produce incorrect persistence metadata.
 
 ---
 
