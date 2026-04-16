@@ -447,12 +447,13 @@ async function main() {
   // Registrar handlers de comandos remotos
   registerCommandHandlers();
 
-  // Iniciar serviços opcionais (web, control bot)
-  await startOptionalServices();
-
-  // Poller de conta — mantém state atualizado com dados reais da venue ativa
-  // (web dashboard e Telegram control leem daqui; sem isso ficam com zeros)
+  // Poller de conta — roda antes das interfaces para que web, control bot e
+  // position tracker recebam state.positions já populado desde o primeiro momento.
+  // startAccountPoller executa await poll() internamente antes do setInterval.
   await startAccountPoller();
+
+  // Iniciar serviços opcionais (web, control bot) — state já populado pelo poller
+  await startOptionalServices();
 
   // Iniciar listener do Telegram (ENABLE_SIGNAL_LISTENER, default: true)
   const signalListenerEnabled = process.env.ENABLE_SIGNAL_LISTENER !== 'false';

@@ -323,5 +323,22 @@ export function startPositionTracker(bot, chatIds, options = {}) {
 
   logger.info(`[TRACKER] Position tracker iniciado (refresh: ${refreshIntervalMs / 1000}s)`);
 
+  // Rehydration: cria cards para posições já abertas no momento do startup.
+  // Necessário em restarts onde state.positions já está populado antes do
+  // tracker iniciar. 'signal:executed' não dispara para posições pré-existentes.
+  // Duplicate guard: cards.has() dentro de createCard não é necessário pois
+  // iteramos apenas posições sem card aqui.
+  const _preExisting = state.positions;
+  if (_preExisting.length > 0) {
+    logger.info(`[TRACKER] Rehydration: ${_preExisting.length} posição(ões) detectada(s) no startup`);
+    for (const pos of _preExisting) {
+      if (!cards.has(pos.asset)) {
+        createCard(pos, null).catch(err =>
+          logger.error(`[TRACKER] Erro em rehydration createCard(${pos.asset}): ${err.message}`)
+        );
+      }
+    }
+  }
+
   return { cards };
 }
