@@ -87,6 +87,8 @@ export const driftAdapter = {
    * @returns {number}
    */
   getPlatformMaxLeverage(asset) {
-    return DRIFT_MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()] ?? 10;
+    const max = DRIFT_MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()];
+    if (max == null) throw new Error(`[DRIFT] Leverage máxima não configurada para "${asset}". Adicione o ativo em DRIFT_MAX_LEVERAGE_BY_ASSET.`);
+    return max;
   },
 };

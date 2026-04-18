@@ -331,6 +331,8 @@ export const valiantAdapter = {
   },
 
   getPlatformMaxLeverage(asset) {
-    return VALIANT_MARKETS.MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()] ?? 20;
+    const max = VALIANT_MARKETS.MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()];
+    if (max == null) throw new Error(`[VALIANT] Leverage máxima não configurada para "${asset}". Adicione o ativo em VALIANT_MARKETS.MAX_LEVERAGE_BY_ASSET.`);
+    return max;
   },
 };

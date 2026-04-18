@@ -37,6 +37,9 @@ class PositionManager {
     this._lastTrailAt  = new Map();
     // asset → consecutive monitoring snapshots where the tracked asset is absent
     this._missingCount = new Map();
+    // Assets whose tracking was restored from disk this session.
+    // Used to emit a one-time "reutilizado" log when identity is validated on first use.
+    this._diskRestored = new Set(this._tracking.keys());
 
     this._readConfig();
   }
@@ -83,11 +86,30 @@ class PositionManager {
           continue;
         }
 
-        logger.info(`[PM] Posição ${asset} fechada — tracking removido`);
+        // Capture before deleting — needed for persistence call below
+        const trackedEntry = this._tracking.get(asset);
+
+        // If the bot did NOT initiate this close, the position was closed externally
+        // (liquidation, venue UI, TP/SL at exchange, bot restart mid-close).
+        // Persist the closure now. If _closing has the asset, _triggerClose() already
+        // called recordTradeClosed() in its .then() — skip to avoid a double call.
+        if (!this._closing.has(asset) && trackedEntry?.venue) {
+          logger.warn(`[PM] Posição ${asset} fechada externamente — persistindo fechamento`, {
+            event:         'external_close_detected',
+            asset,
+            venue:         trackedEntry.venue,
+            bot_trade_ref: trackedEntry.bot_trade_ref ?? null,
+          });
+          persistenceService.recordTradeClosed(asset, trackedEntry.venue, trackedEntry.bot_trade_ref ?? null)
+            .catch(err => logger.warn(`[PM] Falha ao persistir close externo de ${asset}: ${err.message}`));
+        }
+
+        logger.info(`[PM] Posição ${asset} — tracking removido`);
         this._tracking.delete(asset);
         this._closing.delete(asset);
         this._lastTrailAt.delete(asset);
         this._missingCount.delete(asset);
+        this._diskRestored.delete(asset);
       } else {
         this._missingCount.delete(asset);
       }
@@ -147,8 +169,8 @@ class PositionManager {
       };
       this._tracking.set(asset, initial);
       savePositionTracking(this._tracking);
-      logger.info(`[PM] position created with bot_trade_ref — ${direction} ${asset} @ $${entryPrice ?? markPrice}`, {
-        event:         'trade_open',
+      logger.info(`[PM] tracking criado — ${direction} ${asset} @ $${entryPrice ?? markPrice}`, {
+        event:         'tracking_created',
         asset,
         direction,
         entryPrice:    entryPrice ?? markPrice,
@@ -158,8 +180,53 @@ class PositionManager {
     }
     this._missingCount.delete(asset);
 
-    const track = this._tracking.get(asset);
+    let track = this._tracking.get(asset);
     if (!track.venue) track.venue = venue;
+
+    // ── Identity check ─────────────────────────────────────────────────────────
+    // Tracking is indexed by asset only. A prior entry — from disk or still in
+    // memory — may belong to a previous position on the same asset. Detect any
+    // material divergence and reset before price-extreme or trailing-stop logic.
+    //
+    // NOTE: entryPrice is passed raw (not ?? markPrice) to avoid false resets
+    // when entryPrice is temporarily absent and markPrice has drifted from entry.
+    const mismatchReason = this._detectIdentityMismatch(track, { direction, entryPrice, venue });
+    if (mismatchReason) {
+      logger.warn(`[PM] tracking resetado — posição divergente em ${asset} (${mismatchReason})`, {
+        event:   'tracking_reset',
+        asset,
+        reason:  mismatchReason,
+        saved:   { direction: track.direction, entryPrice: track.entryPrice, venue: track.venue },
+        current: { direction, entryPrice: entryPrice ?? markPrice, venue },
+      });
+      track = {
+        direction,
+        entryPrice:    entryPrice ?? markPrice,
+        highestPrice:  markPrice,
+        lowestPrice:   markPrice,
+        stopPrice:     null,
+        alerted:       false,
+        venue,
+        bot_trade_ref: position.bot_trade_ref ?? null,
+      };
+      this._tracking.set(asset, track);
+      this._diskRestored.delete(asset);
+      savePositionTracking(this._tracking);
+    } else if (this._diskRestored.has(asset)) {
+      // First validated reuse of disk-restored tracking — confirms safe rehydration.
+      this._diskRestored.delete(asset);
+      logger.info(`[PM] tracking reutilizado (restaurado do disco, identidade validada) — ${direction} ${asset}`, {
+        event:        'tracking_reused',
+        asset,
+        direction:    track.direction,
+        entryPrice:   track.entryPrice,
+        venue:        track.venue,
+        highestPrice: track.highestPrice,
+        lowestPrice:  track.lowestPrice,
+        stopPrice:    track.stopPrice,
+      });
+    }
+    // ──────────────────────────────────────────────────────────────────────────
 
     // Update price extremes (always)
     let changed = false;
@@ -271,6 +338,36 @@ class PositionManager {
     });
 
     return true;
+  }
+
+  /**
+   * Compare saved tracking identity against the current position snapshot.
+   * Returns a human-readable reason string on material mismatch, or null if
+   * identities match and tracking can be safely reused.
+   *
+   * Checks (in priority order):
+   *   1. direction — exact; any flip is a definitive new position
+   *   2. venue     — exact when both sides are known
+   *   3. entryPrice — within 0.1% tolerance to absorb fill rounding/slippage
+   *
+   * entryPrice is expected to be the RAW position.entryPrice (not ?? markPrice)
+   * to avoid false resets when entryPrice is temporarily absent and markPrice
+   * has drifted materially from the original entry.
+   */
+  _detectIdentityMismatch(savedTrack, { direction, entryPrice, venue }) {
+    if (savedTrack.direction !== direction) {
+      return `direction (${savedTrack.direction} → ${direction})`;
+    }
+    if (savedTrack.venue && venue && savedTrack.venue !== venue) {
+      return `venue (${savedTrack.venue} → ${venue})`;
+    }
+    if (savedTrack.entryPrice > 0 && entryPrice != null && entryPrice > 0) {
+      const delta = Math.abs(savedTrack.entryPrice - entryPrice) / savedTrack.entryPrice;
+      if (delta > 0.001) { // 0.1% — absorbs rounding, not a real position change
+        return `entryPrice materialmente diferente (${savedTrack.entryPrice} → ${entryPrice}, Δ${(delta * 100).toFixed(3)}%)`;
+      }
+    }
+    return null; // identidades compatíveis — tracking pode ser reutilizado
   }
 
   /**

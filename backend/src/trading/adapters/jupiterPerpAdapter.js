@@ -234,7 +234,9 @@ export const jupiterPerpAdapter = {
    * @returns {number}
    */
   getPlatformMaxLeverage(asset) {
-    return JUPITER_PERPS.MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()] ?? 10;
+    const max = JUPITER_PERPS.MAX_LEVERAGE_BY_ASSET[asset?.toUpperCase()];
+    if (max == null) throw new Error(`[JUPITER] Leverage máxima não configurada para "${asset}". Adicione o ativo em JUPITER_PERPS.MAX_LEVERAGE_BY_ASSET.`);
+    return max;
   },
 
   async getBalance() {

@@ -1,0 +1,316 @@
+// src/services/positionReconciliationService.js
+//
+// Two-pass reconciliation service:
+//
+//   Pass 1 — status reconciliation (existing):
+//     Queries DB for OPEN trades, compares against live venue positions.
+//     Marks stale OPEN trades as CLOSED when the position no longer exists at the venue.
+//
+//   Pass 2 — data enrichment (new):
+//     Queries DB for recently-CLOSED trades that still have exit_price = NULL.
+//     These were closed by external events (Layer 1 PositionManager or Pass 1 here)
+//     before fill data could be captured from state.positions.
+//     Fetches fills from the venue and enriches the DB record with:
+//       exit_price, realized_pnl, closed_at (from actual fill timestamp)
+//
+// Venue enrichment support:
+//   valiant (Hyperliquid) — supported via userFillsByTime /info endpoint
+//   drift                 — not supported (no fills history in current SDK adapter)
+//   jupiter / phoenix     — not supported (API not publicly available)
+//   paper                 — excluded (no real venue positions)
+//
+// Fill matching strategy (valiant):
+//   1. Query all fills for the account from trade.opened_at to trade.closed_at + 5 min
+//   2. Filter: coin matches asset, dir contains "Close"
+//   3. Take the FIRST time-cluster of closing fills (within 5 min of each other)
+//      — protects against multiple open/close cycles of the same asset
+//   4. Aggregate: weighted average exit_price + sum of closedPnl
+//   5. Use timestamp of the last fill in the cluster as closed_at
+//   If ambiguous (zero fills, zero total size, or fetch error): skip enrichment silently.
+//
+// Design principles:
+//   - NEVER closes a trade if fetchPositions() fails — absent data ≠ closed position
+//   - Enrichment only overwrites if exit_price IS NULL (enrichTradeClosed() guard)
+//   - Enrichment failure leaves the record intact — safe fallback is null fields
+//   - Both passes are independent: Pass 2 failure does not affect Pass 1
+//   - Paper trades excluded from both passes
+//
+// Config (.env, all optional):
+//   RECONCILE_INTERVAL_MS=300000           (default: 5 min)
+//   RECONCILE_MIN_TRADE_AGE_MS=60000       (default: 60 s)
+//   RECONCILE_ENRICH_WINDOW_HOURS=2        (default: 2 h — Pass 2 lookback window)
+//
+// Limitations (documented, not treated as implemented):
+//   - Multi-venue: only the active venue is reconciled per cycle (Pass 1).
+//   - Enrichment: only valiant/Hyperliquid is supported today.
+//   - Tracking is keyed by asset only (not asset+venue+identity).
+
+import logger from '../utils/logger.js';
+import { persistenceService } from './persistenceService.js';
+import { venueMonitoringService } from '../monitor/venueMonitoringService.js';
+import { getUserFillsByTime } from '../trading/clients/hyperliquidClient.js';
+
+const DEFAULT_INTERVAL_MS           = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_MIN_TRADE_AGE_MS      =      60 * 1000; // 60 seconds
+const DEFAULT_ENRICH_WINDOW_HOURS   = 2;
+const FILL_CLUSTER_WINDOW_MS        = 5 * 60 * 1000; // 5 minutes — max spread for a single close event
+const ENRICH_CLOSE_BUFFER_MS        = 5 * 60 * 1000; // query fills up to 5 min after recorded closed_at
+
+// ── Pass 1: close stale OPEN trades ─────────────────────────────────────────
+
+async function _reconcileOpenTrades() {
+  const openTrades = await persistenceService.getOpenTrades();
+  if (!openTrades.length) return;
+
+  const realTrades = openTrades.filter(t => t.mode !== 'paper');
+  if (!realTrades.length) return;
+
+  const activeVenue = venueMonitoringService.getActiveVenue();
+
+  const venueTrades   = realTrades.filter(t => t.venue === activeVenue);
+  const skippedVenues = [...new Set(
+    realTrades.filter(t => t.venue !== activeVenue).map(t => t.venue)
+  )];
+
+  if (skippedVenues.length > 0) {
+    logger.warn(
+      `[RECONCILE] Trades OPEN em venue(s) inativas ignorados ` +
+      `(venue ativa: ${activeVenue}, ignoradas: ${skippedVenues.join(', ')})`,
+      { event: 'reconcile_venue_skip', skippedVenues, count: realTrades.length - venueTrades.length }
+    );
+  }
+
+  if (!venueTrades.length) return;
+
+  let livePositions;
+  try {
+    livePositions = await venueMonitoringService.fetchPositions();
+  } catch (err) {
+    logger.warn(
+      `[RECONCILE] fetchPositions falhou para ${activeVenue} — pass 1 abortado: ${err.message}`,
+      { event: 'reconcile_fetch_failed', venue: activeVenue }
+    );
+    return;
+  }
+
+  const liveAssets = new Set(
+    (livePositions ?? []).map(p => p.asset?.toUpperCase()).filter(Boolean)
+  );
+
+  logger.info(`[RECONCILE] Pass 1: verificando ${venueTrades.length} trade(s) OPEN contra ${liveAssets.size} posição(ões) ativas em ${activeVenue}`);
+
+  const now      = Date.now();
+  const minAgeMs = parseInt(process.env.RECONCILE_MIN_TRADE_AGE_MS ?? String(DEFAULT_MIN_TRADE_AGE_MS), 10);
+
+  for (const trade of venueTrades) {
+    const ageMs = now - new Date(trade.opened_at).getTime();
+
+    if (ageMs < minAgeMs) {
+      logger.debug(`[RECONCILE] ${trade.symbol} muito recente (${Math.round(ageMs / 1000)}s < ${Math.round(minAgeMs / 1000)}s mínimo) — ignorando`);
+      continue;
+    }
+
+    if (!liveAssets.has(trade.symbol.toUpperCase())) {
+      logger.warn(`[RECONCILE] Trade OPEN no banco ausente na venue — reconciliando`, {
+        event:         'reconcile_close',
+        symbol:        trade.symbol,
+        venue:         trade.venue,
+        bot_trade_ref: trade.bot_trade_ref ?? null,
+        trade_id:      trade.id,
+        opened_at:     trade.opened_at,
+      });
+      await persistenceService.recordTradeClosed(
+        trade.symbol,
+        trade.venue,
+        trade.bot_trade_ref ?? null,
+        'venue_reconciliation'
+      );
+    }
+  }
+}
+
+// ── Pass 2: enrich recently-closed trades missing exit_price ─────────────────
+
+/**
+ * Fetch and aggregate Hyperliquid closing fills for a specific trade.
+ *
+ * Returns { exit_price, realized_pnl, closed_at } or null when:
+ *   - venue is not valiant
+ *   - fills API call fails
+ *   - no closing fills found for the asset in the time window
+ *   - total fill size is zero (data quality guard)
+ *
+ * Aggregation (multiple fills for one close event, e.g. partial fills):
+ *   exit_price   = weighted average of fill prices by fill size
+ *   realized_pnl = sum of closedPnl across all fills in the cluster
+ *   closed_at    = ISO timestamp of the LAST fill in the cluster
+ */
+async function _fetchEnrichData(trade) {
+  if (trade.venue !== 'valiant') return null;
+
+  const sinceMs = new Date(trade.opened_at).getTime();
+  const untilMs = trade.closed_at
+    ? new Date(trade.closed_at).getTime() + ENRICH_CLOSE_BUFFER_MS
+    : Date.now();
+
+  let fills;
+  try {
+    fills = await getUserFillsByTime(sinceMs, untilMs);
+  } catch (err) {
+    logger.warn(`[RECONCILE] Falha ao buscar fills HL para ${trade.symbol}: ${err.message}`, {
+      event: 'reconcile_enrich_fetch_failed',
+      symbol: trade.symbol,
+      trade_id: trade.id,
+    });
+    return null;
+  }
+
+  if (!Array.isArray(fills) || fills.length === 0) return null;
+
+  const assetUpper = trade.symbol.toUpperCase();
+
+  // Keep only closing fills for this specific asset
+  const closingFills = fills.filter(f => {
+    const coin    = String(f.coin ?? '').replace(/-PERP$/i, '').toUpperCase();
+    const isClose = String(f.dir  ?? '').toLowerCase().includes('close');
+    return coin === assetUpper && isClose;
+  });
+
+  if (closingFills.length === 0) {
+    logger.info(`[RECONCILE] Nenhum fill de fechamento encontrado para ${trade.symbol} — enrich pulado`, {
+      event: 'reconcile_enrich_no_fills',
+      symbol: trade.symbol,
+      trade_id: trade.id,
+    });
+    return null;
+  }
+
+  // Sort by time ascending; take the FIRST cluster (within FILL_CLUSTER_WINDOW_MS).
+  // Prevents accidentally mixing fills from a re-open/re-close of the same asset
+  // that may appear within the same time window if the trade was open for a long time.
+  closingFills.sort((a, b) => a.time - b.time);
+  const firstFillTime = closingFills[0].time;
+  const cluster = closingFills.filter(f => f.time - firstFillTime <= FILL_CLUSTER_WINDOW_MS);
+
+  let totalSize        = 0;
+  let weightedPriceSum = 0;
+  let totalClosedPnl   = 0;
+
+  for (const fill of cluster) {
+    const px  = parseFloat(fill.px);
+    const sz  = parseFloat(fill.sz);
+    const pnl = parseFloat(fill.closedPnl ?? '0');
+
+    if (!Number.isFinite(px) || px <= 0) continue;
+    if (!Number.isFinite(sz) || sz <= 0) continue;
+
+    totalSize        += sz;
+    weightedPriceSum += px * sz;
+    if (Number.isFinite(pnl)) totalClosedPnl += pnl;
+  }
+
+  if (totalSize === 0) {
+    logger.warn(`[RECONCILE] Fills encontrados para ${trade.symbol} mas tamanho total é zero — enrich pulado`, {
+      event: 'reconcile_enrich_zero_size',
+      symbol: trade.symbol,
+      trade_id: trade.id,
+    });
+    return null;
+  }
+
+  const exitPrice = weightedPriceSum / totalSize;
+  const lastFill  = cluster[cluster.length - 1];
+  const closedAt  = new Date(lastFill.time).toISOString();
+
+  logger.info(`[RECONCILE] Enrich encontrado para ${trade.symbol}`, {
+    event:        'reconcile_enrich_found',
+    symbol:       trade.symbol,
+    venue:        trade.venue,
+    trade_id:     trade.id,
+    exit_price:   +exitPrice.toFixed(6),
+    realized_pnl: +totalClosedPnl.toFixed(4),
+    closed_at:    closedAt,
+    fill_count:   cluster.length,
+  });
+
+  return { exit_price: exitPrice, realized_pnl: totalClosedPnl, closed_at: closedAt };
+}
+
+async function _enrichRecentClosedTrades() {
+  const windowHours = parseInt(
+    process.env.RECONCILE_ENRICH_WINDOW_HOURS ?? String(DEFAULT_ENRICH_WINDOW_HOURS), 10
+  );
+
+  const trades = await persistenceService.getRecentlyClosedWithoutPrice(windowHours);
+  if (!trades.length) return;
+
+  logger.info(`[RECONCILE] Pass 2: ${trades.length} trade(s) CLOSED sem exit_price — tentando enriquecimento`);
+
+  for (const trade of trades) {
+    if (trade.venue !== 'valiant') {
+      logger.info(`[RECONCILE] Enrich não suportado para venue "${trade.venue}" — ignorando ${trade.symbol}`, {
+        event:    'reconcile_enrich_unsupported_venue',
+        symbol:   trade.symbol,
+        venue:    trade.venue,
+        trade_id: trade.id,
+      });
+      continue;
+    }
+
+    try {
+      const enrichData = await _fetchEnrichData(trade);
+
+      if (!enrichData) {
+        logger.info(`[RECONCILE] Enrich sem evidência suficiente para ${trade.symbol} (${trade.venue}) — mantendo exit_price null`, {
+          event:    'reconcile_enrich_skipped',
+          symbol:   trade.symbol,
+          venue:    trade.venue,
+          trade_id: trade.id,
+        });
+        continue;
+      }
+
+      await persistenceService.enrichTradeClosed(trade.id, enrichData);
+    } catch (err) {
+      logger.warn(`[RECONCILE] Erro ao enriquecer trade ${trade.id} (${trade.symbol}): ${err.message}`);
+    }
+  }
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────────────
+
+async function reconcileOnce() {
+  try {
+    await _reconcileOpenTrades();
+  } catch (err) {
+    logger.warn(`[RECONCILE] Erro no pass 1 (não fatal): ${err.message}`);
+  }
+
+  try {
+    await _enrichRecentClosedTrades();
+  } catch (err) {
+    logger.warn(`[RECONCILE] Erro no pass 2 de enriquecimento (não fatal): ${err.message}`);
+  }
+}
+
+/**
+ * Starts the periodic reconciliation service.
+ * Returns the interval timer (already unref'd — does not keep the process alive).
+ * Call once in main() after persistenceService.init() and positionManager.start().
+ */
+export function startReconciliation() {
+  const intervalMs     = parseInt(process.env.RECONCILE_INTERVAL_MS ?? String(DEFAULT_INTERVAL_MS), 10);
+  const initialDelayMs = 30_000; // wait for the account poller to populate state before first run
+
+  const firstRun = setTimeout(() => reconcileOnce(), initialDelayMs);
+  if (firstRun.unref) firstRun.unref();
+
+  const timer = setInterval(() => reconcileOnce(), intervalMs);
+  if (timer.unref) timer.unref();
+
+  logger.info(
+    `[RECONCILE] Serviço de reconciliação iniciado ` +
+    `(intervalo: ${intervalMs / 1000}s, primeiro ciclo em ${initialDelayMs / 1000}s)`
+  );
+  return timer;
+}

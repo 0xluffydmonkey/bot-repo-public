@@ -911,3 +911,40 @@ export async function transferSpotToPerps(usdAmount) {
 export async function fetchMeta() {
   return _postInfo({ type: 'meta' });
 }
+
+/**
+ * Fetch fills (executions) for the account within a time range.
+ *
+ * Uses the Hyperliquid /info unauthenticated endpoint — same as getPositions().
+ * Unauthenticated read: only needs the account address, not a signature.
+ *
+ * Each fill contains:
+ *   coin        text    — asset name, e.g. "SOL" or "SOL-PERP"
+ *   px          string  — fill price
+ *   sz          string  — fill size in base asset units
+ *   side        string  — "B" (buy) | "A" (ask/sell)
+ *   time        number  — millisecond timestamp
+ *   dir         string  — "Open Long" | "Open Short" | "Close Long" | "Close Short"
+ *   closedPnl   string  — realized PnL for closing fills; "0" for opening fills
+ *   fee         string  — fee charged
+ *   hash        string  — exchange tx hash
+ *   oid         number  — order id
+ *   tid         number  — trade id
+ *
+ * @param {number} startTimeMs  — inclusive lower bound (unix milliseconds)
+ * @param {number} [endTimeMs]  — inclusive upper bound (unix milliseconds); defaults to now
+ * @returns {Promise<Array>}    — raw fill objects; [] if no fills in range
+ */
+export async function getUserFillsByTime(startTimeMs, endTimeMs) {
+  const payload = {
+    type:      'userFillsByTime',
+    user:      getAccountAddress(),
+    startTime: Math.floor(startTimeMs),
+  };
+  if (endTimeMs != null) {
+    payload.endTime = Math.floor(endTimeMs);
+  }
+
+  const data = await _postInfo(payload);
+  return Array.isArray(data) ? data : [];
+}

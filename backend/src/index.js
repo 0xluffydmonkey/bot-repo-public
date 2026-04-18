@@ -12,6 +12,7 @@ import { fetchAccountData }      from "./monitor/data_fetcher.js";
 import { signalStore } from "./utils/signal_store.js";
 import state from "./core/state.js";
 import { persistenceService } from "./services/persistenceService.js";
+import { startReconciliation } from "./services/positionReconciliationService.js";
 
 // ─── Flags CLI → variáveis de ambiente (backward compat) ──────────────────────
 // The canonical way to activate modules is via .env (ENABLE_WEB, ENABLE_CONTROL_BOT,
@@ -440,6 +441,11 @@ async function main() {
 
   // Iniciar rastreamento de posições (alertas + trailing stop)
   positionManager.start();
+
+  // Reconciliação periódica de persistência — safety net para closes externos
+  // (liquidações, fechamento pela UI da venue, restarts). Layer 1 é o PositionManager;
+  // este serviço é a camada 2 que captura o que o Layer 1 não consegue ver.
+  startReconciliation();
 
   // Initialize only the infrastructure required by the active venue
   await initVenueInfra(config.trading.paperMode);

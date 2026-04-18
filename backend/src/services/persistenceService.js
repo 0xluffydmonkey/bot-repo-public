@@ -175,14 +175,16 @@ async function _recordEvent(eventType, context = {}) {
     venue         = null,
     mode          = null,
     error         = null,
+    close_source  = null,
   } = context;
 
   const payload = {};
-  if (symbol !== null) payload.symbol = symbol;
-  if (venue  !== null) payload.venue  = venue;
-  if (mode   !== null) payload.mode   = mode;
+  if (symbol       !== null) payload.symbol       = symbol;
+  if (venue        !== null) payload.venue        = venue;
+  if (mode         !== null) payload.mode         = mode;
+  if (close_source !== null) payload.close_source = close_source;
   // Erro truncado a 500 chars — evita stack traces e dados acidentais
-  if (error  !== null) payload.error  = String(error).slice(0, 500);
+  if (error        !== null) payload.error        = String(error).slice(0, 500);
 
   // Passa null quando não há contexto útil — evita gravar '{}' desnecessariamente.
   // $3::jsonb: cast explícito evita ambiguidade de coerção text→jsonb no driver pg.
@@ -269,6 +271,33 @@ async function _insertSignalDecision({ bot_trade_ref, symbol, side, decision, re
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [bot_trade_ref, symbol, side, decision, reason ?? null, source ?? null]
   );
+}
+
+// ── Helpers de filtro por mode (reutilizável em todos os endpoints de metrics) ─
+//
+// _resolveMode: valida e normaliza o valor recebido do query param.
+//   - 'paper' e 'all' são aceitos explicitamente.
+//   - qualquer outro valor (incluindo ausente/undefined/inválido) → 'live'.
+//
+// _modeFilter: retorna o fragmento SQL e os params correspondentes.
+//   - 'all'         → sem filtro de mode  (modeFilter = '', params = [])
+//   - 'live'/'paper'→ AND mode = $1       (params = [mode])
+//
+// Uso em queries:
+//   const { modeFilter, params } = _modeFilter(_resolveMode(rawMode));
+//   safeQuery(`SELECT ... FROM trades WHERE TRUE ${modeFilter}`, params)
+//
+// Nota: $1 em subqueries e na query principal referencia o mesmo array de
+// params — comportamento correto no driver pg com positional placeholders.
+
+function _resolveMode(raw) {
+  if (raw === 'paper' || raw === 'all') return raw;
+  return 'live';
+}
+
+function _modeFilter(mode) {
+  if (mode === 'all') return { modeFilter: '', params: [] };
+  return { modeFilter: 'AND mode = $1', params: [mode] };
 }
 
 // ── PersistenceService ────────────────────────────────────────────────────────
@@ -449,7 +478,7 @@ export const persistenceService = {
    * @param {string}      venue         - e.g. 'drift', 'valiant', 'paper'
    * @param {string|null} [botTradeRef] - UUID gerado no open; lido de pos.bot_trade_ref pelo caller
    */
-  async recordTradeClosed(symbol, venue, botTradeRef = null) {
+  async recordTradeClosed(symbol, venue, botTradeRef = null, closeSource = null) {
     const symbolUpper = symbol?.toUpperCase();
     if (!symbolUpper || !venue) return;
 
@@ -463,7 +492,7 @@ export const persistenceService = {
     const exit_price   = pos?.markPrice ?? null;
     const realized_pnl = pos?.pnlUSD   ?? null;
 
-    await _recordEvent('TRADE_CLOSE_REQUESTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue });
+    await _recordEvent('TRADE_CLOSE_REQUESTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, close_source: closeSource });
 
     let result;
 
@@ -509,7 +538,7 @@ export const persistenceService = {
       _openTradeIds.delete(mapKey);
       _botTradeRefs.delete(mapKey);
       logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'} rows=${rowsAffected}`);
-      await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue });
+      await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, close_source: closeSource });
 
       // ── Persiste ordem de fechamento (best-effort) ───────────────────────
       // Registrada apenas quando bot_trade_ref está disponível — garante ligação
@@ -553,6 +582,344 @@ export const persistenceService = {
    *   signal_decisions: object[]
    * }|null>}
    */
+  async getMetricsSummary(rawMode) {
+    const ZERO = { totalTrades: 0, closedTrades: 0, winRate: 0, totalPnL: 0, avgPnL: 0, bestTrade: 0, worstTrade: 0 };
+
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        (SELECT COUNT(*)::int FROM trades WHERE TRUE ${modeFilter})                AS total_trades,
+        COUNT(*)::int                                                               AS closed_trades,
+        COUNT(*) FILTER (WHERE realized_pnl > 0)::int                              AS winning_trades,
+        COALESCE(SUM(realized_pnl), 0)::float                                      AS total_pnl,
+        COALESCE(AVG(realized_pnl), 0)::float                                      AS avg_pnl,
+        COALESCE(MAX(realized_pnl), 0)::float                                      AS best_trade,
+        COALESCE(MIN(realized_pnl), 0)::float                                      AS worst_trade
+      FROM trades
+      WHERE status = 'CLOSED' AND realized_pnl IS NOT NULL ${modeFilter}
+    `, params);
+
+    if (!result?.rows?.[0]) return ZERO;
+
+    const r = result.rows[0];
+    const closedTrades = r.closed_trades ?? 0;
+    const winRate = closedTrades > 0 ? (r.winning_trades / closedTrades) * 100 : 0;
+
+    return {
+      totalTrades:  r.total_trades  ?? 0,
+      closedTrades,
+      winRate:      Math.round(winRate * 100) / 100,
+      totalPnL:     r.total_pnl     ?? 0,
+      avgPnL:       r.avg_pnl       ?? 0,
+      bestTrade:    r.best_trade    ?? 0,
+      worstTrade:   r.worst_trade   ?? 0,
+    };
+  },
+
+  async getRiskMetrics(rawMode) {
+    const ZERO = { win_rate: 0, avg_win: 0, avg_loss: 0, profit_factor: null, payoff_ratio: null };
+
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        COUNT(*)::int                                                                    AS closed_trades,
+        COUNT(*) FILTER (WHERE realized_pnl > 0)::int                                   AS winning_trades,
+        COALESCE(AVG(realized_pnl) FILTER (WHERE realized_pnl > 0), 0)::float           AS avg_win,
+        COALESCE(AVG(realized_pnl) FILTER (WHERE realized_pnl < 0), 0)::float           AS avg_loss,
+        COALESCE(SUM(realized_pnl) FILTER (WHERE realized_pnl > 0), 0)::float           AS sum_wins,
+        COALESCE(ABS(SUM(realized_pnl) FILTER (WHERE realized_pnl < 0)), 0)::float      AS abs_sum_losses
+      FROM trades
+      WHERE status = 'CLOSED' AND realized_pnl IS NOT NULL ${modeFilter}
+    `, params);
+
+    if (!result?.rows?.[0]) return ZERO;
+
+    const r = result.rows[0];
+    const closed = r.closed_trades ?? 0;
+    if (closed === 0) return ZERO;
+
+    const winRate      = Math.round((r.winning_trades / closed) * 100 * 100) / 100;
+    const profitFactor = r.abs_sum_losses > 0 ? Math.round((r.sum_wins / r.abs_sum_losses) * 100) / 100 : null;
+    const payoffRatio  = r.avg_loss < 0 ? Math.round((r.avg_win / Math.abs(r.avg_loss)) * 100) / 100 : null;
+
+    return {
+      win_rate:      winRate,
+      avg_win:       Math.round((r.avg_win  ?? 0) * 100) / 100,
+      avg_loss:      Math.round((r.avg_loss ?? 0) * 100) / 100,
+      profit_factor: profitFactor,
+      payoff_ratio:  payoffRatio,
+    };
+  },
+
+  async getMetricsDistribution(rawMode) {
+    const BUCKETS = ['< -100', '-100 a 0', '0 a 100', '100 a 250', '> 250'];
+
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        CASE
+          WHEN realized_pnl < -100 THEN 1
+          WHEN realized_pnl < 0    THEN 2
+          WHEN realized_pnl < 100  THEN 3
+          WHEN realized_pnl < 250  THEN 4
+          ELSE                          5
+        END::int   AS bucket_order,
+        CASE
+          WHEN realized_pnl < -100 THEN '< -100'
+          WHEN realized_pnl < 0    THEN '-100 a 0'
+          WHEN realized_pnl < 100  THEN '0 a 100'
+          WHEN realized_pnl < 250  THEN '100 a 250'
+          ELSE                          '> 250'
+        END        AS bucket,
+        COUNT(*)::int AS count
+      FROM trades
+      WHERE status = 'CLOSED'
+        AND realized_pnl IS NOT NULL
+        ${modeFilter}
+      GROUP BY bucket_order, bucket
+      ORDER BY bucket_order ASC
+    `, params);
+
+    // Garante todos os 5 buckets mesmo se count=0 (determinístico)
+    const countMap = new Map((result?.rows ?? []).map(r => [r.bucket, r.count ?? 0]));
+    return BUCKETS.map(bucket => ({ bucket, count: countMap.get(bucket) ?? 0 }));
+  },
+
+  async getMetricsBySide(rawMode) {
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        side,
+        COUNT(*)::int                                 AS total_trades,
+        COALESCE(SUM(realized_pnl), 0)::float         AS pnl,
+        COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS winning_trades
+      FROM trades
+      WHERE status = 'CLOSED'
+        AND realized_pnl IS NOT NULL
+        ${modeFilter}
+      GROUP BY side
+      ORDER BY side ASC
+    `, params);
+
+    if (!result?.rows?.length) return [];
+
+    return result.rows.map(row => ({
+      side:         row.side,
+      total_trades: row.total_trades ?? 0,
+      pnl:          Math.round((row.pnl ?? 0) * 100) / 100,
+      win_rate:     row.total_trades > 0
+        ? Math.round((row.winning_trades / row.total_trades) * 100 * 100) / 100
+        : 0,
+    }));
+  },
+
+  async getMetricsBySymbol(rawMode) {
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        symbol,
+        COUNT(*)::int                                 AS total_trades,
+        COALESCE(SUM(realized_pnl), 0)::float         AS total_pnl,
+        COALESCE(AVG(realized_pnl), 0)::float         AS avg_pnl,
+        COUNT(*) FILTER (WHERE realized_pnl > 0)::int AS winning_trades
+      FROM trades
+      WHERE status = 'CLOSED'
+        AND realized_pnl IS NOT NULL
+        ${modeFilter}
+      GROUP BY symbol
+      ORDER BY total_pnl DESC
+    `, params);
+
+    if (!result?.rows?.length) return [];
+
+    return result.rows.map(row => ({
+      symbol:       row.symbol,
+      total_trades: row.total_trades ?? 0,
+      total_pnl:    Math.round((row.total_pnl ?? 0) * 100) / 100,
+      avg_pnl:      Math.round((row.avg_pnl ?? 0) * 100) / 100,
+      win_rate:     row.total_trades > 0
+        ? Math.round((row.winning_trades / row.total_trades) * 100 * 100) / 100
+        : 0,
+    }));
+  },
+
+  async getPnlTimeseries(rawMode) {
+    const mode = _resolveMode(rawMode);
+    const { modeFilter, params } = _modeFilter(mode);
+
+    const result = await safeQuery(`
+      SELECT
+        DATE(closed_at)::text    AS date,
+        SUM(realized_pnl)::float AS daily_pnl
+      FROM trades
+      WHERE status = 'CLOSED'
+        AND realized_pnl IS NOT NULL
+        AND closed_at IS NOT NULL
+        ${modeFilter}
+      GROUP BY DATE(closed_at)
+      ORDER BY DATE(closed_at) ASC
+    `, params);
+
+    if (!result?.rows?.length) return [];
+
+    let cumulative = 0;
+    return result.rows.map(row => {
+      cumulative += row.daily_pnl ?? 0;
+      return {
+        date:           row.date,
+        daily_pnl:      Math.round((row.daily_pnl ?? 0) * 100) / 100,
+        cumulative_pnl: Math.round(cumulative * 100) / 100,
+      };
+    });
+  },
+
+  // ── Idempotência de notificações Telegram ──────────────────────────────────
+  //
+  // Fonte de verdade para deduplicação de alertas entre restarts.
+  // Tabela: telegram_notifications_sent (dedupe_key TEXT UNIQUE)
+  //
+  // Dedupe keys usadas pelo position_tracker:
+  //   <bot_trade_ref>:position_opened
+  //   <bot_trade_ref>:milestone:<value>   (ex: :milestone:10, :milestone:-20)
+  //
+  // Todas as funções são tolerantes a falha: safeQuery absorve erros silenciosamente.
+  // Se dedupeKey for null/undefined, comportamento é seguro (sem escrita/leitura no DB).
+
+  async hasNotificationBeenSent(dedupeKey) {
+    if (!dedupeKey) return false;
+    const r = await safeQuery(
+      'SELECT 1 FROM telegram_notifications_sent WHERE dedupe_key = $1 LIMIT 1',
+      [dedupeKey]
+    );
+    return (r?.rowCount ?? 0) > 0;
+  },
+
+  async markNotificationSent(dedupeKey) {
+    if (!dedupeKey) return;
+    await safeQuery(
+      'INSERT INTO telegram_notifications_sent (dedupe_key) VALUES ($1) ON CONFLICT (dedupe_key) DO NOTHING',
+      [dedupeKey]
+    );
+  },
+
+  async getSentMilestones(botTradeRef) {
+    if (!botTradeRef) return new Set();
+    const r = await safeQuery(
+      `SELECT dedupe_key FROM telegram_notifications_sent WHERE dedupe_key LIKE $1`,
+      [`${botTradeRef}:milestone:%`]
+    );
+    const set = new Set();
+    for (const row of r?.rows ?? []) {
+      const raw = row.dedupe_key.split(':milestone:')[1];
+      const n   = Number(raw);
+      if (!isNaN(n)) set.add(n);
+    }
+    return set;
+  },
+
+  /**
+   * Retorna trades CLOSED recentemente sem exit_price.
+   * Usado pelo enrichment pass do serviço de reconciliação para tentar
+   * preencher exit_price / realized_pnl / closed_at com dados reais da venue.
+   *
+   * Exclui paper trades e trades sem closed_at.
+   * windowHours limita a busca a trades fechados nas últimas N horas,
+   * evitando reprocessamento de registros antigos indefinidamente.
+   *
+   * Nunca lança exceção — retorna [] se banco indisponível.
+   *
+   * @param {number} [windowHours=2]
+   * @returns {Promise<Array<{id, symbol, venue, mode, bot_trade_ref, opened_at, closed_at}>>}
+   */
+  async getRecentlyClosedWithoutPrice(windowHours = 2) {
+    const result = await safeQuery(
+      `SELECT id, symbol, venue, mode, bot_trade_ref, opened_at, closed_at
+       FROM trades
+       WHERE status = 'CLOSED'
+         AND exit_price IS NULL
+         AND mode != 'paper'
+         AND closed_at IS NOT NULL
+         AND closed_at > NOW() - ($1 || ' hours')::interval
+       ORDER BY closed_at DESC`,
+      [String(windowHours)]
+    );
+    return result?.rows ?? [];
+  },
+
+  /**
+   * Enriquece um trade CLOSED com exit_price, realized_pnl e closed_at
+   * quando disponíveis via dados reais da venue.
+   *
+   * Segurança:
+   *   - Só atualiza se exit_price IS NULL (nunca sobrescreve dados de closes controlados)
+   *   - Só atualiza se o trade ainda estiver com status CLOSED
+   *   - Requer tradeId (UUID do banco) — identificador inequívoco
+   *
+   * Nunca lança exceção.
+   *
+   * @param {string} tradeId       — UUID do registro em trades
+   * @param {{ exit_price: number, realized_pnl: number, closed_at: string }} enrichData
+   * @returns {Promise<boolean>}   — true se a linha foi atualizada
+   */
+  async enrichTradeClosed(tradeId, { exit_price, realized_pnl, closed_at } = {}) {
+    if (!tradeId) return false;
+    if (exit_price == null || !Number.isFinite(Number(exit_price)) || Number(exit_price) <= 0) {
+      logger.warn(`[PERSIST] enrichTradeClosed ignorado — exit_price inválido (${exit_price}) para trade ${tradeId}`);
+      return false;
+    }
+
+    const result = await safeQuery(
+      `UPDATE trades
+       SET exit_price   = $2,
+           realized_pnl = $3,
+           closed_at    = COALESCE($4::timestamptz, closed_at)
+       WHERE id         = $1
+         AND status     = 'CLOSED'
+         AND exit_price IS NULL`,
+      [
+        tradeId,
+        exit_price,
+        realized_pnl ?? null,
+        closed_at    ?? null,
+      ]
+    );
+
+    const updated = (result?.rowCount ?? 0) > 0;
+    if (updated) {
+      logger.info(`[PERSIST] Trade enriquecido — id=${tradeId} exit_price=${exit_price} realized_pnl=${realized_pnl} closed_at=${closed_at}`);
+    }
+    return updated;
+  },
+
+  /**
+   * Retorna todos os trades com status=OPEN no banco.
+   * Usado pelo serviço de reconciliação periódica para detectar
+   * posições fechadas na venue mas ainda abertas no banco.
+   * Nunca lança exceção — retorna [] se banco indisponível.
+   *
+   * @returns {Promise<Array<{id, symbol, venue, mode, bot_trade_ref, opened_at}>>}
+   */
+  async getOpenTrades() {
+    const result = await safeQuery(
+      `SELECT id, symbol, venue, mode, bot_trade_ref, opened_at
+       FROM trades
+       WHERE status = 'OPEN'
+       ORDER BY opened_at ASC`,
+      []
+    );
+    return result?.rows ?? [];
+  },
+
   async getTradeAuditByRef(botTradeRef) {
     if (!botTradeRef) return null;
 

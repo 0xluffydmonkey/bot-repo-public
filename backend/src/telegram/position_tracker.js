@@ -5,6 +5,7 @@
 
 import state  from '../core/state.js';
 import logger from '../utils/logger.js';
+import { persistenceService } from '../services/persistenceService.js';
 import { positionCardKeyboard } from './ui/keyboards.js';
 import {
   fmt, fmtSign, fmtPrice, fmtPct, fmtPnlIcon, fmtDirIcon, fmtTime, esc, paperBanner,
@@ -123,29 +124,43 @@ export function startPositionTracker(bot, chatIds, options = {}) {
   // ── Envio do card inicial ─────────────────────────────────────────────────
 
   async function createCard(pos, signalId) {
-    const isPaper  = state.status.mode === 'paper';
-    const text     = renderCard(pos, signalId, isPaper);
-    const keyboard = positionCardKeyboard(pos.asset);
+    const botTradeRef = pos.bot_trade_ref ?? null;
+    const openedKey   = botTradeRef ? `${botTradeRef}:position_opened` : null;
+
+    // Dedup: se já enviamos este card antes (ex: restart com posição aberta), não reenviar.
+    // Se bot_trade_ref não estiver disponível ainda, envia normalmente (sem dedup).
+    const alreadySent = await persistenceService.hasNotificationBeenSent(openedKey);
+
+    const isPaper    = state.status.mode === 'paper';
+    const text       = renderCard(pos, signalId, isPaper);
+    const keyboard   = positionCardKeyboard(pos.asset);
     const messageIds = new Map();
 
-    for (const chatId of chatIds) {
-      try {
-        const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
-        messageIds.set(chatId, sent.message_id);
-      } catch (err) {
-        logger.warn(`[TRACKER] Erro ao enviar card ${pos.asset} para ${chatId}: ${err.message}`);
+    if (!alreadySent) {
+      for (const chatId of chatIds) {
+        try {
+          const sent = await bot.sendMessage(chatId, text, { ...HTML, reply_markup: keyboard });
+          messageIds.set(chatId, sent.message_id);
+        } catch (err) {
+          logger.warn(`[TRACKER] Erro ao enviar card ${pos.asset} para ${chatId}: ${err.message}`);
+        }
       }
+      await persistenceService.markNotificationSent(openedKey);
     }
+
+    // Restaura milestones já disparados do DB para não reenviar após restart.
+    const milestonesFired = await persistenceService.getSentMilestones(botTradeRef);
 
     cards.set(pos.asset, {
       asset: pos.asset,
+      botTradeRef,
       signalId,
       messageIds,
-      milestonesFired: new Set(),
+      milestonesFired,
       lastRefresh: Date.now(),
     });
 
-    logger.info(`[TRACKER] Card criado para ${pos.asset}`);
+    logger.info(`[TRACKER] Card ${alreadySent ? 'rehydrated (sem reenvio)' : 'criado'} para ${pos.asset}`);
   }
 
   // ── Atualização de card existente ─────────────────────────────────────────
@@ -185,17 +200,30 @@ export function startPositionTracker(bot, chatIds, options = {}) {
     const isPaper = state.status.mode === 'paper';
     const text = renderClosed(card, isPaper);
 
-    for (const [chatId, messageId] of card.messageIds) {
-      try {
-        await bot.editMessageText(text, {
-          chat_id:    chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [] },
-        });
-      } catch (err) {
-        if (!err.message?.includes('message is not modified')) {
-          logger.warn(`[TRACKER] Erro ao notificar fechamento de ${card.asset}: ${err.message}`);
+    if (card.messageIds.size > 0) {
+      // Edita o card original com o status de fechamento
+      for (const [chatId, messageId] of card.messageIds) {
+        try {
+          await bot.editMessageText(text, {
+            chat_id:    chatId,
+            message_id: messageId,
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [] },
+          });
+        } catch (err) {
+          if (!err.message?.includes('message is not modified')) {
+            logger.warn(`[TRACKER] Erro ao notificar fechamento de ${card.asset}: ${err.message}`);
+          }
+        }
+      }
+    } else {
+      // Card foi rehydrated sem reenvio (position_opened já registrado antes do restart).
+      // Sem messageId disponível para editar — envia nova mensagem de fechamento.
+      for (const chatId of chatIds) {
+        try {
+          await bot.sendMessage(chatId, text, HTML);
+        } catch (err) {
+          logger.warn(`[TRACKER] Erro ao notificar fechamento de ${card.asset} para ${chatId}: ${err.message}`);
         }
       }
     }
@@ -222,6 +250,10 @@ export function startPositionTracker(bot, chatIds, options = {}) {
           logger.warn(`[TRACKER] Erro ao enviar milestone ${m}% de ${pos.asset}: ${err.message}`);
         }
       }
+
+      // Registra no BD para não reenviar após restart
+      const dedupeKey = card.botTradeRef ? `${card.botTradeRef}:milestone:${m}` : null;
+      await persistenceService.markNotificationSent(dedupeKey);
 
       logger.info(`[TRACKER] Milestone ${m}% disparado para ${pos.asset}`);
     }
@@ -298,6 +330,14 @@ export function startPositionTracker(bot, chatIds, options = {}) {
     for (const pos of positions) {
       const card = cards.get(pos.asset);
       if (!card) continue;
+
+      // Backfill: bot_trade_ref pode não estar disponível no momento do createCard
+      // (ex: signal:executed ocorre antes do primeiro poller cycle injetar o ref).
+      // Quando o ref chega via positions:update, registra position_opened no BD.
+      if (!card.botTradeRef && pos.bot_trade_ref) {
+        card.botTradeRef = pos.bot_trade_ref;
+        persistenceService.markNotificationSent(`${pos.bot_trade_ref}:position_opened`);
+      }
 
       sendMilestoneAlerts(pos, card).catch(err =>
         logger.error(`[TRACKER] Erro em sendMilestoneAlerts(${pos.asset}): ${err.message}`)

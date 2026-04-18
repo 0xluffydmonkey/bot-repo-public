@@ -89,6 +89,60 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
   // ── REST: consultas ────────────────────────────────────────────────────────
   app.get('/api/state', (_req, res) => res.json(state.getSnapshot()));
 
+  // Métricas resumidas de trades — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/summary', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getMetricsSummary(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
+  // Performance por ativo — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/by-symbol', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getMetricsBySymbol(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
+  // PnL timeseries agrupado por dia — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/pnl-timeseries', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getPnlTimeseries(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
+  // Distribuição de resultados por buckets de PnL — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/distribution', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getMetricsDistribution(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
+  // Performance por side (LONG/SHORT) — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/by-side', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getMetricsBySide(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
+  // Métricas de risco/qualidade da estratégia — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/risk', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getRiskMetrics(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, data });
+  });
+
   // Retorna auditoria consolidada de um trade por bot_trade_ref.
   // Leitura pura — sem autenticação (mesma política de /api/state).
   // Retorna 404 quando o ref não corresponde a nenhum trade no banco.

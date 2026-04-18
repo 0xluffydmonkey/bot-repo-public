@@ -39,12 +39,18 @@ export async function calculateTradeParams(signal, walletBalanceUSD, opts = {}) 
   logger.info(`[RISK] Ativo: ${signal.asset} ✓ (venue: ${perpService.getActiveVenue()})`);
 
   // ─── 1. Alavancagem ───────────────────────────────────────────────────────
-  const platformMaxLev = perpService.getPlatformMaxLeverage(assetUpper);
-  const configMaxLev   = config.trading.maxLeverage;
-  const requestedLev   = signal.leverage;
-  const finalLeverage  = Math.min(requestedLev, platformMaxLev, configMaxLev);
+  let platformMaxLev;
+  try {
+    platformMaxLev = perpService.getPlatformMaxLeverage(assetUpper);
+  } catch (err) {
+    logger.warn(`[RISK] ⛔ Leverage: limite da venue indisponível para "${signal.asset}" — ${err.message}`);
+    return null;
+  }
+  const configMaxLev  = config.trading.maxLeverage;
+  const requestedLev  = signal.leverage;
+  const finalLeverage = Math.min(requestedLev, platformMaxLev, configMaxLev);
 
-  logger.info(`[RISK] Leverage: sinal=${requestedLev}x | plataforma=${platformMaxLev}x | config=${configMaxLev}x → final=${finalLeverage}x`);
+  logger.info(`[RISK] Leverage: requested=${requestedLev}x | venue_asset=${platformMaxLev}x | config=${configMaxLev}x → effective=${finalLeverage}x`);
   if (finalLeverage !== requestedLev) {
     adjustments.push(`leverage ajustada ${requestedLev}x→${finalLeverage}x`);
     logger.warn(`[RISK] ⚠️  Leverage reduzida: ${requestedLev}x → ${finalLeverage}x`);
