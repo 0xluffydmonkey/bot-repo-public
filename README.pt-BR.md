@@ -31,7 +31,7 @@ Antes de rodar `./start.sh` pela primeira vez:
 - [ ] Arquivos de carteira/chaves necessários fora do repositório e referenciados por variáveis `*_PATH`
 - [ ] `chmod +x start.sh stop.sh status.sh`
 
-Veja [docs/pt-BR/instalacao.md](docs/pt-BR/instalacao.md) para instruções passo a passo.
+Veja o indice modular atual em [docs/README.md](docs/README.md) para os guias operacionais. Os guias antigos em [docs/pt-BR](docs/pt-BR) continuam disponiveis como referencia.
 
 ---
 
@@ -104,8 +104,20 @@ ENABLE_CONTROL_BOT=false      # bot Telegram de controle remoto
 
 ## Documentação
 
+A documentacao atual esta organizada por componente em [docs/README.md](docs/README.md). Comece por la para seguranca, Supabase, systemd, Telegram, dashboard, paper/live trading, venues, persistencia e troubleshooting.
+
 | Guia | Descrição |
 |------|-----------|
+| [Indice da Documentacao](docs/README.md) | Documentacao modular atual |
+| [Visao Geral da Arquitetura](docs/architecture/overview.md) | Arquitetura e fluxos existentes |
+| [Setup Local](docs/setup/local-development.md) | Desenvolvimento local seguro |
+| [VM Ubuntu](docs/deployment/ubuntu-vm.md) | Operacao em VM |
+| [systemd](docs/deployment/systemd.md) | Servico, logs e overrides |
+| [Telegram](docs/integrations/telegram.md) | Listener, sessao por arquivo e control bot |
+| [Dashboard](docs/integrations/dashboard.md) | Dashboard web e autenticacao da API |
+| [Supabase](docs/integrations/supabase.md) | Setup PostgreSQL e schema completo |
+| [Secrets e Paths](docs/security/secrets-and-paths.md) | Segredos fora do repo |
+| [Lacunas e Riscos](docs/operations/gaps-and-risks.md) | Classificacao de riscos conhecidos |
 | [Instalação](docs/pt-BR/instalacao.md) | Pré-requisitos e configuração |
 | [Configuração](docs/pt-BR/configuracao.md) | Todas as variáveis, segredos, módulos |
 | [Executando](docs/pt-BR/executando.md) | Iniciar, parar, primeiro uso |

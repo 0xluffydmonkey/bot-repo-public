@@ -1,20 +1,10 @@
 {
-  "BTC": {
-    "direction": "SHORT",
-    "entryPrice": 77787,
-    "highestPrice": 77472,
-    "lowestPrice": 75727.99999999999,
-    "stopPrice": 79514.4,
-    "alerted": true,
-    "venue": "valiant",
-    "bot_trade_ref": null
-  },
   "BNB": {
     "direction": "SHORT",
     "entryPrice": 635.52,
     "highestPrice": 648.95,
-    "lowestPrice": 631.64,
-    "stopPrice": 663.222,
+    "lowestPrice": 630.8,
+    "stopPrice": 662.34,
     "alerted": false,
     "venue": "valiant",
     "bot_trade_ref": null

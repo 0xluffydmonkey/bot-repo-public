@@ -31,7 +31,7 @@ Before running `./start.sh` for the first time:
 - [ ] Required wallet/key files stored outside the repo and referenced by `*_PATH` variables
 - [ ] `chmod +x start.sh stop.sh status.sh`
 
-See [docs/en/installation.md](docs/en/installation.md) for step-by-step instructions.
+See the documentation index at [docs/en/README.md](docs/en/README.md) for all English guides.
 
 ---
 
@@ -47,7 +47,7 @@ PAPER_TRADING=true
 
 In paper mode the bot reads signals, validates them through all risk checks, and simulates execution — **no real transactions are submitted**. Run for at least 24 hours before switching to live trading.
 
-See [docs/en/paper-mode.md](docs/en/paper-mode.md) for full paper vs live behavior.
+See [docs/en/trading/paper-mode.md](docs/en/trading/paper-mode.md) for full paper vs live behavior.
 
 ---
 
@@ -109,17 +109,28 @@ ENABLE_CONTROL_BOT=false      # Telegram bot for remote control
 
 ## Documentation
 
+| Language | Index |
+|----------|-------|
+| English | [docs/en/README.md](docs/en/README.md) |
+| Português | [docs/pt-br/README.md](docs/pt-br/README.md) |
+
+Key guides:
+
 | Guide | Description |
 |-------|-------------|
-| [Installation](docs/en/installation.md) | Prerequisites and setup |
-| [Configuration](docs/en/configuration.md) | All settings, secrets, toggles |
-| [Running](docs/en/running.md) | Start, stop, first run |
-| [Paper Mode](docs/en/paper-mode.md) | Paper vs live behavior |
-| [Backends / Venues](docs/en/venues.md) | Generic backend selection and support status |
-| [Operator Guide](docs/en/operator-guide.md) | Dashboard, Telegram, manual trading, operational controls |
-| [Close Policy](docs/en/close-policy.md) | Venue resolution rules for close operations |
-| [Systemd](docs/en/systemd.md) | Auto-start on server |
-| [Troubleshooting](docs/en/troubleshooting.md) | Common errors and fixes |
+| [Architecture Overview](docs/en/architecture/overview.md) | System structure, signal flow, component map |
+| [Installation](docs/en/setup/installation.md) | Prerequisites and step-by-step setup |
+| [Configuration](docs/en/operations/configuration.md) | All settings, secrets, feature flags |
+| [Running](docs/en/operations/running.md) | Start, stop, status, first run |
+| [Paper Mode](docs/en/trading/paper-mode.md) | Paper vs live behavior |
+| [Venues / Backends](docs/en/trading/venues.md) | Backend selection and support status |
+| [Operator Guide](docs/en/operations/operator-guide.md) | Dashboard, Telegram, manual trading, controls |
+| [Reconciliation](docs/en/operations/reconciliation.md) | External close detection and enrichment |
+| [Supabase](docs/en/integrations/supabase.md) | PostgreSQL setup and full schema |
+| [Systemd](docs/en/deployment/systemd.md) | Auto-start on server |
+| [Troubleshooting](docs/en/operations/troubleshooting.md) | Common errors and fixes |
+| [Secrets and Paths](docs/en/security/secrets-and-paths.md) | External secret file pattern |
+| [Close Policy](docs/en/trading/close-policy.md) | Venue resolution rules for close operations |
 
 ---
 

@@ -16,6 +16,7 @@ import { Info } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn, formatCurrency, formatNumber, formatPercent } from '@/lib/utils';
 import type { BotMetrics } from '@/types/state';
+import type { PnlTimeseriesPoint } from '@/api/client';
 
 const fallbackCurve = Array.from({ length: 12 }).map((_, index) => ({
   time: `${String(index + 9).padStart(2, '0')}:00`,
@@ -179,8 +180,14 @@ export function AnalyticsPanel({ metrics }: AnalyticsPanelProps) {
   );
 }
 
+interface PerformancePanelProps {
+  metrics: BotMetrics;
+  timeseries?: PnlTimeseriesPoint[];
+  hideSummaryCards?: boolean;
+}
+
 // Performance overview for dedicated tab — uses real metrics only
-export function PerformancePanel({ metrics }: AnalyticsPanelProps) {
+export function PerformancePanel({ metrics, timeseries = [], hideSummaryCards = false }: PerformancePanelProps) {
   const curve =
     metrics.equityCurve && metrics.equityCurve.length > 0
       ? metrics.equityCurve
@@ -192,7 +199,7 @@ export function PerformancePanel({ metrics }: AnalyticsPanelProps) {
   return (
     <div className="space-y-4">
       {/* Summary Cards — all real data */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {!hideSummaryCards && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">PnL Total</p>
@@ -233,7 +240,7 @@ export function PerformancePanel({ metrics }: AnalyticsPanelProps) {
             <p className="mt-0.5 text-xs text-muted-foreground">Em aberto</p>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       {/* Charts */}
       <div className="grid gap-3 lg:grid-cols-2">
@@ -243,7 +250,7 @@ export function PerformancePanel({ metrics }: AnalyticsPanelProps) {
             <CardTitle className="text-sm">Evolucao do Patrimonio</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[280px]">
+            <div className="h-[360px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={curve}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 20%)" vertical={false} />
@@ -281,25 +288,59 @@ export function PerformancePanel({ metrics }: AnalyticsPanelProps) {
           </CardContent>
         </Card>
 
-        {/* Daily PnL — not available from API, graceful fallback */}
+        {/* PnL Acumulado — dados reais de /api/metrics/pnl-timeseries */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">PnL por Dia</CardTitle>
+            <CardTitle className="text-sm">PnL Acumulado (Historico)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex h-[280px] flex-col items-center justify-center gap-3 rounded-md border border-border bg-muted/20">
-              <Info className="h-8 w-8 text-muted-foreground/50" />
-              <div className="text-center">
-                <p className="text-sm font-medium text-muted-foreground">
-                  Historico diario indisponivel
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground/70">
-                  A API atual nao expoe breakdown historico de PnL por dia.
-                  <br />
-                  Esta visualizacao sera habilitada quando o backend fornecer esses dados.
-                </p>
+            {timeseries.length > 0 ? (
+              <div className="h-[360px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={timeseries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(0, 0%, 20%)" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: 'hsl(0, 0%, 55%)', fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(d: string) => d.slice(5)}
+                    />
+                    <YAxis
+                      tick={{ fill: 'hsl(0, 0%, 55%)', fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(v: number) => `$${formatNumber(v, 0)}`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'hsl(0, 0%, 7%)',
+                        border: '1px solid hsl(0, 0%, 14%)',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                      }}
+                      formatter={(v: number) => [formatCurrency(v), 'PnL Acumulado']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="cumulative_pnl"
+                      stroke={
+                        (timeseries[timeseries.length - 1]?.cumulative_pnl ?? 0) >= 0
+                          ? 'hsl(142, 72%, 46%)'
+                          : 'hsl(0, 72%, 51%)'
+                      }
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-            </div>
+            ) : (
+              <div className="flex h-[360px] flex-col items-center justify-center gap-3 rounded-md border border-border bg-muted/20">
+                <Info className="h-8 w-8 text-muted-foreground/50" />
+                <p className="text-sm text-muted-foreground">Nenhum trade fechado registrado</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

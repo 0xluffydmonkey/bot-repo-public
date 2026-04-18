@@ -18,12 +18,16 @@ Not allowed in `.env`:
 - SECRET_KEY
 - MNEMONIC
 - TELEGRAM_SESSION raw value
+- SUPABASE_DB_URL raw connection string
 
 ## Safe pattern
 Use:
 - `BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json`
 - venue-specific paths such as `WALLET_<VENUE>_PATH=/opt/bot/secrets/<venue-wallet>.json`
 - `TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt`
+- `SUPABASE_DB_URL_PATH=/opt/bot/secrets/supabase-db-url.txt`
+
+See [docs/security/secrets-and-paths.md](docs/security/secrets-and-paths.md) and [docs/integrations/supabase.md](docs/integrations/supabase.md) for the current operational pattern.
 
 ## Incident response
 If suspicious behavior is detected:

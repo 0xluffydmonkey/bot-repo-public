@@ -2,12 +2,19 @@ import { useEffect, useMemo } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { io, type Socket } from 'socket.io-client';
 import toast from 'react-hot-toast';
-import { api } from '@/api/client';
+import { api, type MetricsSummary, type PnlTimeseriesPoint, type SymbolMetrics, type RiskMetrics, type SideMetrics, type DistributionBucket } from '@/api/client';
 import { normalizeSnapshot } from '@/lib/state-adapters';
 import { useDashboardStore } from '@/store/dashboard-store';
 import type { ActivityLog, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
 let socket: Socket | null = null;
+
+const SUMMARY_ZERO: MetricsSummary = { totalTrades: 0, closedTrades: 0, winRate: 0, totalPnL: 0, avgPnL: 0, bestTrade: 0, worstTrade: 0 };
+const TIMESERIES_EMPTY: PnlTimeseriesPoint[] = [];
+const BY_SYMBOL_EMPTY: SymbolMetrics[] = [];
+const RISK_ZERO: RiskMetrics = { win_rate: 0, avg_win: 0, avg_loss: 0, profit_factor: null, payoff_ratio: null };
+const BY_SIDE_EMPTY: SideMetrics[] = [];
+const DISTRIBUTION_EMPTY: DistributionBucket[] = [];
 
 function getApiToken() {
   if (typeof window === 'undefined') return null;
@@ -44,6 +51,48 @@ export function useDashboard() {
     queryKey: ['bot-state'],
     queryFn: api.getState,
     refetchInterval: 30_000,
+  });
+
+  const summaryQuery = useQuery({
+    queryKey: ['metrics-summary'],
+    queryFn: api.getMetricsSummary,
+    refetchInterval: 60_000,
+    placeholderData: SUMMARY_ZERO,
+  });
+
+  const timeseriesQuery = useQuery({
+    queryKey: ['pnl-timeseries'],
+    queryFn: api.getPnlTimeseries,
+    refetchInterval: 120_000,
+    placeholderData: TIMESERIES_EMPTY,
+  });
+
+  const bySymbolQuery = useQuery({
+    queryKey: ['metrics-by-symbol'],
+    queryFn: api.getMetricsBySymbol,
+    refetchInterval: 120_000,
+    placeholderData: BY_SYMBOL_EMPTY,
+  });
+
+  const riskQuery = useQuery({
+    queryKey: ['metrics-risk'],
+    queryFn: api.getRiskMetrics,
+    refetchInterval: 120_000,
+    placeholderData: RISK_ZERO,
+  });
+
+  const bySideQuery = useQuery({
+    queryKey: ['metrics-by-side'],
+    queryFn: api.getMetricsBySide,
+    refetchInterval: 120_000,
+    placeholderData: BY_SIDE_EMPTY,
+  });
+
+  const distributionQuery = useQuery({
+    queryKey: ['metrics-distribution'],
+    queryFn: api.getMetricsDistribution,
+    refetchInterval: 120_000,
+    placeholderData: DISTRIBUTION_EMPTY,
   });
 
   useEffect(() => {
@@ -178,5 +227,11 @@ export function useDashboard() {
     closeAll: (venue?: string) => closeAllMutation.mutateAsync(venue),
     updateTpSl: (payload: UpdateTpSlInput) => updateTpSlMutation.mutateAsync(payload),
     refetch: stateQuery.refetch,
+    summary: summaryQuery.data ?? SUMMARY_ZERO,
+    timeseries: timeseriesQuery.data ?? TIMESERIES_EMPTY,
+    bySymbol:   bySymbolQuery.data   ?? BY_SYMBOL_EMPTY,
+    risk:       riskQuery.data       ?? RISK_ZERO,
+    bySide:        bySideQuery.data        ?? BY_SIDE_EMPTY,
+    distribution:  distributionQuery.data  ?? DISTRIBUTION_EMPTY,
   };
 }

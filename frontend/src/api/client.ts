@@ -1,6 +1,50 @@
 import { normalizeSnapshot } from '@/lib/state-adapters';
 import type { BotState, ManualOpenTradeInput, UpdateTpSlInput } from '@/types/state';
 
+export type MetricsSummary = {
+  totalTrades: number;
+  closedTrades: number;
+  winRate: number;
+  totalPnL: number;
+  avgPnL: number;
+  bestTrade: number;
+  worstTrade: number;
+};
+
+export type SymbolMetrics = {
+  symbol: string;
+  total_trades: number;
+  total_pnl: number;
+  avg_pnl: number;
+  win_rate: number;
+};
+
+export type PnlTimeseriesPoint = {
+  date: string;
+  daily_pnl: number;
+  cumulative_pnl: number;
+};
+
+export type DistributionBucket = {
+  bucket: string;
+  count: number;
+};
+
+export type SideMetrics = {
+  side: string;
+  total_trades: number;
+  pnl: number;
+  win_rate: number;
+};
+
+export type RiskMetrics = {
+  win_rate: number;
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number | null;
+  payoff_ratio: number | null;
+};
+
 export type TradeAuditResult = {
   ok: boolean;
   bot_trade_ref: string;
@@ -71,4 +115,16 @@ export const api = {
     }),
   getTradeAudit: (botTradeRef: string) =>
     request<TradeAuditResult>(`/api/audit/${encodeURIComponent(botTradeRef)}`),
+  getMetricsSummary: () =>
+    request<{ ok: boolean; data: MetricsSummary }>('/api/metrics/summary').then((r) => r.data),
+  getPnlTimeseries: () =>
+    request<{ ok: boolean; data: PnlTimeseriesPoint[] }>('/api/metrics/pnl-timeseries').then((r) => r.data),
+  getMetricsBySymbol: () =>
+    request<{ ok: boolean; data: SymbolMetrics[] }>('/api/metrics/by-symbol').then((r) => r.data),
+  getRiskMetrics: () =>
+    request<{ ok: boolean; data: RiskMetrics }>('/api/metrics/risk').then((r) => r.data),
+  getMetricsBySide: () =>
+    request<{ ok: boolean; data: SideMetrics[] }>('/api/metrics/by-side').then((r) => r.data),
+  getMetricsDistribution: () =>
+    request<{ ok: boolean; data: DistributionBucket[] }>('/api/metrics/distribution').then((r) => r.data),
 };
