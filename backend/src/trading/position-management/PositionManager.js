@@ -228,8 +228,22 @@ class PositionManager {
     }
     // ──────────────────────────────────────────────────────────────────────────
 
-    // Update price extremes (always)
+    // Propagate bot_trade_ref into tracking when it becomes available after tracking was created.
+    // Covers: (a) adopted external positions whose ref is injected by persistenceService
+    //         after recordExternalTradeAdopted(); (b) normal positions where the
+    //         positions:update listener ran before the ref was first available.
     let changed = false;
+    if (track.bot_trade_ref == null && position.bot_trade_ref != null) {
+      track.bot_trade_ref = position.bot_trade_ref;
+      changed = true;
+      logger.info(`[PM] bot_trade_ref disponível — atualizado no tracking: ${asset} ref=${position.bot_trade_ref}`, {
+        event:        'tracking_ref_updated',
+        asset,
+        bot_trade_ref: position.bot_trade_ref,
+      });
+    }
+
+    // Update price extremes (always)
     if (markPrice > track.highestPrice) { track.highestPrice = markPrice; changed = true; }
     if (markPrice < track.lowestPrice)  { track.lowestPrice  = markPrice; changed = true; }
 

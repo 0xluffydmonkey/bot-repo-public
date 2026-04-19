@@ -1,17 +1,31 @@
 // src/services/positionReconciliationService.js
 //
-// Two-pass reconciliation service:
+// Three-pass reconciliation service:
 //
-//   Pass 1 — status reconciliation (existing):
+//   Pass 1 — status reconciliation (DB→venue):
 //     Queries DB for OPEN trades, compares against live venue positions.
 //     Marks stale OPEN trades as CLOSED when the position no longer exists at the venue.
 //
-//   Pass 2 — data enrichment (new):
+//   Pass 2 — data enrichment:
 //     Queries DB for recently-CLOSED trades that still have exit_price = NULL.
 //     These were closed by external events (Layer 1 PositionManager or Pass 1 here)
 //     before fill data could be captured from state.positions.
 //     Fetches fills from the venue and enriches the DB record with:
 //       exit_price, realized_pnl, closed_at (from actual fill timestamp)
+//
+//   Pass 3 — inverse reconciliation (venue→DB) / external adoption:
+//     Queries live venue positions, compares against OPEN trades in DB.
+//     Positions present on venue but absent from DB for 2 consecutive passes
+//     are adopted as new OPEN trades (source='system', open_source='venue_reconciliation').
+//     After adoption, the position is tracked and controlled normally by the bot.
+//
+//     Safety guards for adoption:
+//       - direction must be known (LONG|SHORT) — skips if absent
+//       - requires 2 consecutive passes (≈5 min) before adopting — avoids race with bot's own DB inserts
+//       - ambiguous DB state (multiple OPEN for same venue+asset) → skip with warning
+//       - paper mode excluded
+//       - if fetchPositions() fails → pass aborted without side effects
+//       - idempotent: adopted trade appears in DB, subsequent passes see it as tracked
 //
 // Venue enrichment support:
 //   valiant (Hyperliquid) — supported via userFillsByTime /info endpoint
@@ -30,10 +44,11 @@
 //
 // Design principles:
 //   - NEVER closes a trade if fetchPositions() fails — absent data ≠ closed position
+//   - NEVER adopts a position unless seen in 2 consecutive passes — race guard
 //   - Enrichment only overwrites if exit_price IS NULL (enrichTradeClosed() guard)
 //   - Enrichment failure leaves the record intact — safe fallback is null fields
-//   - Both passes are independent: Pass 2 failure does not affect Pass 1
-//   - Paper trades excluded from both passes
+//   - All passes are independent: failure in one does not affect others
+//   - Paper trades excluded from all passes
 //
 // Config (.env, all optional):
 //   RECONCILE_INTERVAL_MS=300000           (default: 5 min)
@@ -41,7 +56,7 @@
 //   RECONCILE_ENRICH_WINDOW_HOURS=2        (default: 2 h — Pass 2 lookback window)
 //
 // Limitations (documented, not treated as implemented):
-//   - Multi-venue: only the active venue is reconciled per cycle (Pass 1).
+//   - Multi-venue: only the active venue is reconciled per cycle (Passes 1 and 3).
 //   - Enrichment: only valiant/Hyperliquid is supported today.
 //   - Tracking is keyed by asset only (not asset+venue+identity).
 
@@ -277,6 +292,125 @@ async function _enrichRecentClosedTrades() {
   }
 }
 
+// ── Pass 3: adopt external positions present at venue but absent from DB ──────
+//
+// Requires MIN_ADOPT_PASSES consecutive reconciliation cycles to confirm a position
+// before adoption. This prevents false adoptions caused by timing races between
+// the bot's own DB inserts and the reconciliation cycle.
+//
+// State is module-level (in-memory) — resets on bot restart, which is safe:
+// a restart clears the counter, so the position must be seen twice again before adoption.
+
+const MIN_ADOPT_PASSES = 2;
+const _adoptionSeenCount = new Map(); // "${venue}:${asset}" → consecutive-pass seen count
+
+async function _adoptExternalPositions() {
+  const openTrades  = await persistenceService.getOpenTrades();
+  const activeVenue = venueMonitoringService.getActiveVenue();
+
+  const realDbTrades = openTrades.filter(t => t.mode !== 'paper' && t.venue === activeVenue);
+
+  let livePositions;
+  try {
+    livePositions = await venueMonitoringService.fetchPositions();
+  } catch (err) {
+    logger.warn(
+      `[RECONCILE] Pass 3: fetchPositions falhou para ${activeVenue} — abortado: ${err.message}`,
+      { event: 'adopt_fetch_failed', venue: activeVenue }
+    );
+    return;
+  }
+
+  if (!Array.isArray(livePositions) || livePositions.length === 0) {
+    _adoptionSeenCount.clear();
+    return;
+  }
+
+  // Count OPEN trades per asset in DB for ambiguity detection
+  const dbOpenCount = new Map();
+  for (const t of realDbTrades) {
+    const asset = t.symbol.toUpperCase();
+    dbOpenCount.set(asset, (dbOpenCount.get(asset) ?? 0) + 1);
+  }
+
+  const liveAssets = new Set();
+
+  for (const livePos of livePositions) {
+    const asset = livePos.asset?.toUpperCase();
+    if (!asset) continue;
+    liveAssets.add(asset);
+
+    const key      = `${activeVenue}:${asset}`;
+    const dbCount  = dbOpenCount.get(asset) ?? 0;
+
+    if (dbCount > 1) {
+      logger.warn(
+        `[RECONCILE] Pass 3: ${dbCount} trades OPEN no banco para ${key} — adoção ignorada (ambiguidade)`,
+        { event: 'adopt_skip_ambiguous', asset, venue: activeVenue, db_open_count: dbCount }
+      );
+      _adoptionSeenCount.delete(key);
+      continue;
+    }
+
+    if (dbCount === 1) {
+      // Position already tracked in DB — not a candidate
+      _adoptionSeenCount.delete(key);
+      continue;
+    }
+
+    // dbCount === 0: live position has no DB counterpart
+
+    const direction = livePos.direction?.toUpperCase();
+    if (!direction || !['LONG', 'SHORT'].includes(direction)) {
+      logger.warn(
+        `[RECONCILE] Pass 3: posição ${asset} sem direction confiável — adoção ignorada`,
+        { event: 'adopt_skip_no_direction', asset, venue: activeVenue, direction: livePos.direction ?? null }
+      );
+      _adoptionSeenCount.delete(key);
+      continue;
+    }
+
+    const seenCount = (_adoptionSeenCount.get(key) ?? 0) + 1;
+    _adoptionSeenCount.set(key, seenCount);
+
+    if (seenCount < MIN_ADOPT_PASSES) {
+      logger.info(
+        `[RECONCILE] Pass 3: posição ${direction} ${asset} não rastreada no banco — aguardando confirmação (${seenCount}/${MIN_ADOPT_PASSES})`,
+        { event: 'adopt_candidate_seen', asset, venue: activeVenue, direction, seen_count: seenCount, entry_price: livePos.entryPrice ?? null }
+      );
+      continue;
+    }
+
+    // seenCount >= MIN_ADOPT_PASSES: position confirmed across multiple cycles — adopt
+    logger.warn(
+      `[RECONCILE] Pass 3: adotando posição externa — ${direction} ${asset} @ ${activeVenue} (confirmado ${seenCount} ciclos)`,
+      { event: 'adopt_external_position', asset, venue: activeVenue, direction, entry_price: livePos.entryPrice ?? null, seen_count: seenCount }
+    );
+
+    await persistenceService.recordExternalTradeAdopted({
+      asset,
+      venue:       activeVenue,
+      direction,
+      entryPrice:  livePos.entryPrice ?? null,
+      sizeBase:    livePos.sizeBase   ?? null,
+    });
+
+    _adoptionSeenCount.delete(key); // reset after adoption (DB now has the record)
+  }
+
+  // Remove candidates for assets that disappeared from venue before adoption
+  for (const key of [..._adoptionSeenCount.keys()]) {
+    const asset = key.split(':').slice(1).join(':'); // handles asset names with colons (none currently)
+    if (!liveAssets.has(asset)) {
+      logger.info(
+        `[RECONCILE] Pass 3: candidato ${key} desapareceu da venue antes de ser adotado — descartado`,
+        { event: 'adopt_candidate_expired', key }
+      );
+      _adoptionSeenCount.delete(key);
+    }
+  }
+}
+
 // ── Orchestrator ─────────────────────────────────────────────────────────────
 
 async function reconcileOnce() {
@@ -290,6 +424,12 @@ async function reconcileOnce() {
     await _enrichRecentClosedTrades();
   } catch (err) {
     logger.warn(`[RECONCILE] Erro no pass 2 de enriquecimento (não fatal): ${err.message}`);
+  }
+
+  try {
+    await _adoptExternalPositions();
+  } catch (err) {
+    logger.warn(`[RECONCILE] Erro no pass 3 de adoção (não fatal): ${err.message}`);
   }
 }
 

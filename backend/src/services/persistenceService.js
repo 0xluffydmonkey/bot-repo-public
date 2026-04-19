@@ -176,6 +176,7 @@ async function _recordEvent(eventType, context = {}) {
     mode          = null,
     error         = null,
     close_source  = null,
+    open_source   = null,
   } = context;
 
   const payload = {};
@@ -183,6 +184,7 @@ async function _recordEvent(eventType, context = {}) {
   if (venue        !== null) payload.venue        = venue;
   if (mode         !== null) payload.mode         = mode;
   if (close_source !== null) payload.close_source = close_source;
+  if (open_source  !== null) payload.open_source  = open_source;
   // Erro truncado a 500 chars — evita stack traces e dados acidentais
   if (error        !== null) payload.error        = String(error).slice(0, 500);
 
@@ -517,9 +519,11 @@ export const persistenceService = {
         [exit_price, realized_pnl, tradeId]
       );
     } else {
-      // Prioridade 3: bot reiniciou e bot_trade_ref não está disponível em state.positions.
-      // Atualiza o trade aberto mais recente para esse symbol+venue.
-      logger.warn(`[PERSIST] ref/id em memória não encontrado para ${venue}:${symbolUpper} — fallback por symbol+venue`);
+      // Prioridade 3 (ÚLTIMO RECURSO): bot_trade_ref e db id ausentes — ocorre após restart
+      // quando o tracking em disco não tinha bot_trade_ref (tracking pré-feature ou corrompido).
+      // ⚠️ FALLBACK: atualiza o trade OPEN mais recente para symbol+venue. Impreciso se houver
+      // múltiplos trades OPEN para o mesmo symbol+venue (não deve ocorrer normalmente).
+      logger.warn(`[PERSIST] ⚠️ FALLBACK por symbol+venue — bot_trade_ref e id ausentes para ${venue}:${symbolUpper}. Verifique tracking em disco.`);
       result = await safeQuery(
         `UPDATE trades
          SET status = 'CLOSED', exit_price = $1, realized_pnl = $2, closed_at = NOW()
@@ -537,7 +541,8 @@ export const persistenceService = {
     if (rowsAffected > 0) {
       _openTradeIds.delete(mapKey);
       _botTradeRefs.delete(mapKey);
-      logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'} rows=${rowsAffected}`);
+      const closeMethod = botTradeRef != null ? `bot_trade_ref=${botTradeRef}` : tradeId != null ? `db_id=${tradeId}` : 'fallback(symbol+venue)';
+      logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} método=${closeMethod} close_source=${closeSource ?? 'null'} rows=${rowsAffected}`);
       await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, close_source: closeSource });
 
       // ── Persiste ordem de fechamento (best-effort) ───────────────────────
@@ -911,13 +916,126 @@ export const persistenceService = {
    */
   async getOpenTrades() {
     const result = await safeQuery(
-      `SELECT id, symbol, venue, mode, bot_trade_ref, opened_at
+      `SELECT id, symbol, venue, mode, bot_trade_ref, opened_at, side, entry_price
        FROM trades
        WHERE status = 'OPEN'
        ORDER BY opened_at ASC`,
       []
     );
     return result?.rows ?? [];
+  },
+
+  /**
+   * Registra uma posição aberta externamente (manualmente na venue) como novo trade
+   * OPEN no banco, adotando-a para controle pelo bot.
+   *
+   * Chamado pelo serviço de reconciliação quando detecta posição aberta na venue
+   * sem correspondente OPEN no banco.
+   *
+   * Efeitos:
+   *   - INSERT em trades (status=OPEN, source='system')
+   *   - _botTradeRefs e _openTradeIds atualizados em memória
+   *   - trade_events com open_source='venue_reconciliation' no payload
+   *
+   * Idempotência: responsabilidade do caller verificar que não há OPEN para venue+asset.
+   * Nunca lança exceção — safeQuery absorve falhas silenciosamente.
+   *
+   * @param {object} livePos
+   * @param {string}      livePos.asset
+   * @param {string}      livePos.venue
+   * @param {string}      livePos.direction  - 'LONG' | 'SHORT' (obrigatório)
+   * @param {number|null} [livePos.entryPrice]
+   * @param {number|null} [livePos.sizeBase]
+   * @returns {Promise<{id: string, bot_trade_ref: string}|null>}
+   */
+  async recordExternalTradeAdopted(livePos) {
+    const { asset, venue, direction, entryPrice = null, sizeBase = null } = livePos;
+    const symbolUpper = asset?.toUpperCase();
+
+    if (!symbolUpper || !venue) {
+      logger.warn('[PERSIST] recordExternalTradeAdopted: asset e venue são obrigatórios');
+      return null;
+    }
+
+    const sideUpper = direction?.toUpperCase();
+    if (!sideUpper || !['LONG', 'SHORT'].includes(sideUpper)) {
+      logger.warn(`[PERSIST] recordExternalTradeAdopted: direction inválida (${direction}) para ${venue}:${symbolUpper}`);
+      return null;
+    }
+
+    const mapKey = `${venue}:${symbolUpper}`;
+    const ref    = randomUUID();
+
+    // Register ref before INSERT — available for positions:update listener even if INSERT is slow
+    const prevRef = _botTradeRefs.get(mapKey) ?? null;
+    _botTradeRefs.set(mapKey, ref);
+
+    await _recordEvent('TRADE_OPEN_REQUESTED', {
+      bot_trade_ref: ref,
+      symbol:        symbolUpper,
+      venue,
+      mode:          'live',
+      open_source:   'venue_reconciliation',
+    });
+
+    const sizeUSD = (entryPrice != null && sizeBase != null && entryPrice > 0 && sizeBase > 0)
+      ? entryPrice * sizeBase
+      : null;
+
+    const result = await safeQuery(
+      `INSERT INTO trades (
+         bot_trade_ref, symbol, side, status, mode, source, venue,
+         entry_price, size
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id`,
+      [
+        ref,
+        symbolUpper,
+        sideUpper,
+        'OPEN',
+        'live',
+        'system',
+        venue,
+        entryPrice ?? null,
+        sizeUSD    ?? null,
+      ]
+    );
+
+    const id = result?.rows?.[0]?.id ?? null;
+
+    if (id != null) {
+      _openTradeIds.set(mapKey, id);
+      logger.warn(
+        `[PERSIST] ✅ Trade externo adotado — id=${id} ref=${ref} venue=${venue} symbol=${symbolUpper} side=${sideUpper} entry=${entryPrice ?? 'N/A'}`,
+        { event: 'trade_external_adopted', id, bot_trade_ref: ref, venue, symbol: symbolUpper, side: sideUpper, entry_price: entryPrice }
+      );
+      await _recordEvent('TRADE_OPEN_PERSISTED', {
+        bot_trade_ref: ref,
+        symbol:        symbolUpper,
+        venue,
+        mode:          'live',
+        open_source:   'venue_reconciliation',
+      });
+      return { id, bot_trade_ref: ref };
+    }
+
+    // INSERT failed — restore previous ref state
+    if (_botTradeRefs.get(mapKey) === ref) {
+      if (prevRef != null) {
+        _botTradeRefs.set(mapKey, prevRef);
+      } else {
+        _botTradeRefs.delete(mapKey);
+      }
+    }
+    await _recordEvent('TRADE_PERSIST_FAILED', {
+      bot_trade_ref: ref,
+      symbol:        symbolUpper,
+      venue,
+      mode:          'live',
+      error:         'INSERT trades retornou null id (adoção externa)',
+    });
+    logger.warn(`[PERSIST] recordExternalTradeAdopted falhou — INSERT retornou null para ${venue}:${symbolUpper}`);
+    return null;
   },
 
   async getTradeAuditByRef(botTradeRef) {
