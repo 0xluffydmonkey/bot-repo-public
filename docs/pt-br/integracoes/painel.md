@@ -1,8 +1,8 @@
-# Dashboard Web
+# Painel Web
 
 ## Propósito
 
-Documentar o dashboard web: seus endpoints e o modelo de autenticação para comandos críticos.
+Documentar o painel web: seus endpoints e o modelo de autenticação para comandos críticos.
 
 ## Público-alvo
 
@@ -12,7 +12,7 @@ Operadores e desenvolvedores que usam ou mantêm a interface web.
 
 - `ENABLE_WEB=true`
 - `WEB_PORT`, padrão `3000`
-- Opcional para acesso remoto: `WEB_API_TOKEN` no arquivo externo de secrets
+- Opcional para acesso remoto: `WEB_API_TOKEN` no arquivo externo de segredos
 
 ## Onde se encaixa
 
@@ -37,7 +37,7 @@ Para acesso remoto, configure token em `/opt/bot/secrets/bot-secrets.env`:
 WEB_API_TOKEN=token_longo_aleatorio
 ```
 
-O frontend usa `localStorage` com a chave `trade-dashboard-api-token` para enviar `X-API-Token`.
+O frontend usa `localStorage` com a chave `trade-painel-api-token` para enviar `X-API-Token`.
 
 ## Endpoints
 
@@ -95,22 +95,22 @@ curl -sS -X POST http://127.0.0.1:3000/api/open \
 
 ## Riscos
 
-- Alto: dashboard remoto sem `WEB_API_TOKEN`.
+- Alto: painel remoto sem `WEB_API_TOKEN`.
 - Alto: portas abertas publicamente sem firewall/reverse proxy.
 - Médio: métricas vazias quando Supabase não está configurado.
 - Médio: leitura de `/api/state` e WebSocket não exigem token hoje.
 
-## Troubleshooting
+## Resolução de Problemas
 
 - 403 em comando remoto: configure `WEB_API_TOKEN`.
 - 401: token ausente ou incorreto.
-- Dashboard abre mas não atualiza: confira Socket.IO e logs `[WEB]`.
+- Painel abre mas não atualiza: confira Socket.IO e logs `[WEB]`.
 - Métricas zeradas: veja [supabase.md](supabase.md).
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] `ENABLE_WEB=true`
 - [ ] Acesso remoto usa `WEB_API_TOKEN`
 - [ ] Comandos testados em paper
 - [ ] `/api/state` responde
-- [ ] Logs `[WEB] Dashboard online` aparecem no boot
+- [ ] Logs `[WEB] Painel online` aparecem no boot

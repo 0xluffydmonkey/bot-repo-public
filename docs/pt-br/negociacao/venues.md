@@ -1,4 +1,4 @@
-# Backends / Venues
+# Backends e Venues
 
 O bot é multi-backend. Um backend, também chamado de venue no código, é a integração de trading usada para execução live, snapshot de conta, limites de mercado e monitoramento de posições.
 
@@ -16,9 +16,9 @@ Esse valor é lido uma vez quando o processo inicia. Para trocar de backend, edi
 
 ## Como a Seleção de Backend Funciona
 
-Todos os fluxos de execução passam pelo `PerpExecutionService`. O serviço lê o backend ativo no registry de venues e roteia a operação para o adapter correspondente.
+Todos os fluxos de execução passam pelo `PerpExecutionService`. O serviço lê o backend ativo no registry de venues e roteia a operação para o adaptador correspondente.
 
-Cada backend declara capabilities:
+Cada backend declara capacidades:
 
 - abrir e fechar trades
 - fechar todas as posições
@@ -28,7 +28,7 @@ Cada backend declara capabilities:
 - monitoramento de posições
 - ativos suportados, limites de mercado e alavancagem máxima
 
-Em modo live, o bot falha cedo se o backend selecionado não oferecer as capabilities live obrigatórias.
+Em modo ao vivo, o bot falha cedo se o backend selecionado não oferecer as capacidades live obrigatórias.
 
 ---
 
@@ -41,7 +41,7 @@ Em modo live, o bot falha cedo se o backend selecionado não oferecer as capabil
 | `jupiter` | Metadados estáticos / backend futuro de execução | Não pronto para live |
 | `phoenix` | Metadados estáticos / backend futuro de execução | Não pronto para live |
 
-Use a tabela como retrato do estado da codebase, não como recomendação. Sempre rode paper mode e preflight específico do backend antes de operar live.
+Use a tabela como retrato do estado da codebase, não como recomendação. Sempre rode paper mode e pré-validação específico do backend antes de operar live.
 
 ---
 
@@ -54,7 +54,7 @@ PERP_OPEN_VENUE=drift
 PAPER_TRADING=true
 ```
 
-Secrets raw nunca devem ir no `.env`. Use o arquivo de secrets e variáveis `*_PATH`:
+Segredos brutas nunca devem ir no `.env`. Use o arquivo de segredos e variáveis `*_PATH`:
 
 Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -80,27 +80,27 @@ Valiant/Hyperliquid usa uma agent/API wallet para assinatura de ordens. `VALIANT
 
 ## Modo Paper
 
-O modo paper entende o backend ativo, mas não chama adapters de execução live. O paper engine intercepta a execução enquanto ainda usa metadados do backend para verificações de risco (ativos suportados, caps de alavancagem, mínimos de mercado e step sizes).
+O modo paper entende o backend ativo, mas não chama adaptadores de execução ao vivo. O paper engine intercepta a execução enquanto ainda usa metadados do backend para verificações de risco (ativos suportados, limites de alavancagem, mínimos de mercado e step sizes).
 
 ---
 
 ## Suporte a Enriquecimento
 
-O Pass 2 de reconciliação (enriquecimento de fills) só é suportado para `valiant`/Hyperliquid. Para outros venues, closes reconciliados terão `exit_price = null` no banco. Veja [../operations/reconciliation.md](../operations/reconciliation.md).
+O Pass 2 de reconciliação (enriquecimento de fills) só é suportado para `valiant`/Hyperliquid. Para outros venues, closes reconciliados terão `exit_price = null` no banco. Veja [../operacoes/reconciliacao.md](../operacoes/reconciliacao.md).
 
 ---
 
-## Checklist Para Live
+## Lista de Verificação Para Operação ao Vivo
 
 Antes de definir `PAPER_TRADING=false`:
 
 - [ ] Backend selecionado está live-ready nesta codebase
 - [ ] Arquivos de wallet/chave configurados fora do repositório
 - [ ] `chmod 600` em todos os arquivos de wallet/chave/sessão
-- [ ] Script de preflight específico rodado em `backend/scripts/`
+- [ ] Script de pré-validação específico rodado em `backend/scripts/`
 - [ ] Iniciar com `POSITION_SIZE_PCT=0.01`
-- [ ] Auto-trading global desligado até um teste live manual pequeno funcionar
-- [ ] Gate específico de backend habilitado apenas após preflight e teste manual
+- [ ] Auto-trading global desligado até um teste ao vivo manual pequeno funcionar
+- [ ] Gate específico de backend habilitado apenas após pré-validação e teste manual
 
 Gate explícito atual:
 
@@ -127,6 +127,6 @@ Para adicionar um novo backend de forma incremental:
 
 1. Crie um manifest em `backend/src/venues/manifests/`.
 2. Registre em `backend/src/venues/registerBuiltInVenues.js`.
-3. Implemente adapters de execução e monitoramento.
-4. Adicione secrets exigidos em `validateEnv.js` usando o padrão `*_PATH`.
+3. Implemente adaptadores de execução e monitoramento.
+4. Adicione segredos exigidos em `validateEnv.js` usando o padrão `*_PATH`.
 5. Documente apenas a configuração genérica mais as notas específicas mínimas para operar com segurança.

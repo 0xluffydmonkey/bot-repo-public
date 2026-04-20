@@ -24,7 +24,7 @@ nano /opt/bot/secrets/bot-secrets.env
 
 **"Missing required secret: SOLANA_RPC_URL" ou outra credencial de backend**
 
-O arquivo existe, mas o módulo/backend selecionado está sem um valor obrigatório ou ainda tem placeholder (`SET_IN_SERVER_ONLY`). Abra o arquivo de secrets e substitua placeholders por valores reais:
+O arquivo existe, mas o módulo/backend selecionado está sem um valor obrigatório ou ainda tem placeholder (`SET_IN_SERVER_ONLY`). Abra o arquivo de segredos e substitua placeholders por valores reais:
 
 ```bash
 nano /opt/bot/secrets/bot-secrets.env
@@ -131,11 +131,11 @@ journalctl -u bot-trader -b --no-pager | grep -E '(Started|Failed|Stopping)'
 Verifique na ordem:
 
 1. Modo paper: `grep PAPER_TRADING backend/.env` — se `true`, nenhuma operação real é esperada.
-2. Intake de sinais: verifique o dashboard ou `/config` no Telegram — o **Intake** está ON?
-3. Pausa: verifique o dashboard ou `/config` — o bot está **Pausado**?
-4. Auto-trading: verifique o dashboard ou `/config` — o **Auto-trading** está ON?
+2. Intake de sinais: verifique o painel ou `/config` no Telegram — o **Intake** está ON?
+3. Pausa: verifique o painel ou `/config` — o bot está **Pausado**?
+4. Auto-trading: verifique o painel ou `/config` — o **Auto-trading** está ON?
 
-Se os três estiverem ativos e ainda não houver trades, verifique o log de sinais (`/signals` no Telegram ou o painel de sinais do dashboard) para ver se os sinais estão chegando.
+Se os três estiverem ativos e ainda não houver trades, verifique o log de sinais (`/signals` no Telegram ou o painel de sinais do painel) para ver se os sinais estão chegando.
 
 ---
 
@@ -176,7 +176,7 @@ O backend selecionado está registrado, mas não expõe capability de execução
 
 ---
 
-**"Execution adapter not registered for venue"**
+**"Execution adaptador not registered for venue"**
 
 O valor de `PERP_OPEN_VENUE` não corresponde a nenhum backend/venue registrado. Valores registrados atualmente incluem `drift`, `jupiter`, `phoenix` e `valiant`. Verifique erros de digitação no `.env`.
 
@@ -184,7 +184,7 @@ O valor de `PERP_OPEN_VENUE` não corresponde a nenhum backend/venue registrado.
 
 **"Wallet/key not configured for venue"**
 
-O backend selecionado exige uma wallet ou chave de assinatura que está faltando no arquivo de secrets. Use o modelo `*_PATH`:
+O backend selecionado exige uma wallet ou chave de assinatura que está faltando no arquivo de segredos. Use o modelo `*_PATH`:
 
 Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -206,15 +206,15 @@ Alguns backends têm um gate explícito extra de inicialização. Verifique flag
 ENABLE_AUTO_TRADING_VALIANT=true
 ```
 
-Ative isso apenas depois de paper testing, preflight e um pequeno teste live manual.
+Ative isso apenas depois de paper testing, pré-validação e um pequeno teste ao vivo manual.
 
 ---
 
-## Problemas com dashboard
+## Problemas com painel
 
-**Dashboard mostra dados desatualizados**
+**Painel mostra dados desatualizados**
 
-O dashboard atualiza via WebSocket. Se a conexão caiu:
+O painel atualiza via WebSocket. Se a conexão caiu:
 - Recarregue a página — o WebSocket vai reconectar automaticamente
 - Verifique se o backend ainda está rodando: `./status.sh`
 
@@ -233,11 +233,11 @@ curl -X POST http://localhost:3000/api/pause \
 
 **API REST retorna 403**
 
-`WEB_API_TOKEN` não está definido e você está conectando de um endereço não-localhost. Defina `WEB_API_TOKEN` no arquivo de secrets para acesso remoto ou conecte apenas de localhost.
+`WEB_API_TOKEN` não está definido e você está conectando de um endereço não-localhost. Defina `WEB_API_TOKEN` no arquivo de segredos para acesso remoto ou conecte apenas de localhost.
 
 ---
 
-## Problemas com trading manual
+## Problemas com trades manuais
 
 **Abertura manual rejeitada — "risk manager"**
 
@@ -265,7 +265,7 @@ Após a redução, a posição remanescente ficaria abaixo do tamanho mínimo do
 
 **Trades travados em status OPEN**
 
-O serviço de reconciliação deve detectar isso automaticamente a cada 5 minutos. Verifique se está rodando:
+O serviço de reconciliação deve detectar trades `OPEN` no banco que desapareceram da venue ativa e fechá-los automaticamente. Verifique se está rodando:
 
 ```bash
 journalctl -u bot-trader | grep '\[RECONCILE\]'
@@ -273,8 +273,46 @@ journalctl -u bot-trader | grep '\[RECONCILE\]'
 
 Se não aparecem logs de reconciliação, o serviço pode não ter iniciado. Verifique `backend/src/index.js` por `startReconciliation()`.
 
+Se os logs aparecem mas o trade continua `OPEN`, confira:
+
+- A venue do trade corresponde à venue ativa. Logs com `reconcile_venue_skip` indicam que o trade pertence a uma venue não reconciliada neste ciclo.
+- `fetchPositions()` está funcionando. Logs com `reconcile_fetch_failed` indicam que a passagem de close abortou sem efeitos colaterais.
+- O trade é mais antigo que `RECONCILE_MIN_TRADE_AGE_MS`.
+- `recordTradeClosed()` encontrou a identidade do trade. Se aparecer fallback por `symbol+venue`, verifique o trade por `symbol`, `venue` e timestamps.
+
+Veja [reconciliacao.md](reconciliacao.md) para o fluxo completo de identidade.
+
+**Posição manual na venue não apareceu no banco**
+
+A adoção externa não é imediata. A posição na venue ativa precisa aparecer em 2 ciclos consecutivos de reconciliação antes de ser persistida como trade `OPEN` com `open_source='venue_reconciliation'`.
+
+Logs esperados:
+
+```text
+event: adopt_candidate_seen
+event: adopt_external_position
+event: trade_external_adopted
+```
+
+Se ela não aparecer:
+
+- Confirme que a posição está na venue ativa.
+- Confira `adopt_fetch_failed`; adoção não roda com snapshot não confiável.
+- Confira `adopt_candidate_expired`; a posição desapareceu antes da confirmação.
+- Confira `adopt_skip_no_direction`; o adaptador não forneceu `LONG`/`SHORT` confiável.
+
+**Adoção não ocorreu por ambiguidade**
+
+Logs com `adopt_skip_ambiguous` indicam que o banco já tem múltiplos trades `OPEN` para o mesmo `venue + asset` ativo. O bot não tenta adivinhar qual deles corresponde à posição live. Resolva o estado duplicado no banco antes de esperar adoção.
+
 **Exit price permanece null após close externo**
 
 O enriquecimento do Pass 2 só suporta `valiant`/Hyperliquid. Para outras venues, `exit_price` permanecerá null a menos que você atualize o banco manualmente.
 
 Para valiant, verifique se `RECONCILE_ENRICH_WINDOW_HOURS` é suficientemente grande para cobrir o tempo entre o close e o próximo ciclo de reconciliação.
+
+Se o trade foi adotado externamente, a mesma limitação se aplica: a adoção cria e rastreia o trade `OPEN`, mas o enriquecimento após close ainda depende do suporte a histórico de fills da venue e da janela configurada.
+
+**Fallback por symbol+venue apareceu nos logs**
+
+Este é um caminho de close de último recurso usado quando `bot_trade_ref` e id de banco em memória estão indisponíveis, geralmente após restart com tracking antigo ou incompleto. Deve ser raro. Verifique se o trade afetado tem `symbol`, `venue`, `opened_at` e `closed_at` corretos, depois confira se o tracking foi restaurado com `bot_trade_ref`.

@@ -12,7 +12,7 @@ Em `backend/.env`:
 PAPER_TRADING=true
 ```
 
-Esta é uma configuração de inicialização. O modo paper vs live não pode ser alterado em tempo de execução.
+Esta é uma configuração de inicialização. O modo paper vs operação ao vivo não pode ser alterado em tempo de execução.
 
 ---
 
@@ -57,23 +57,23 @@ PAPER_INITIAL_BALANCE=5000
 
 O saldo diminui conforme posições são abertas (o colateral é consumido) e aumenta quando posições fecham (colateral + PnL realizado é devolvido).
 
-O saldo no dashboard reflete o estado real do paper engine — não são dados estáticos simulados.
+O saldo no painel reflete o estado real do paper engine — não são dados estáticos simulados.
 
 ---
 
 ## Superfícies do operador em modo paper
 
 Todas as superfícies do operador funcionam de forma idêntica em modo paper e live:
-- o dashboard mostra posições e PnL reais do paper engine
+- o painel mostra posições e PnL reais do paper engine
 - o Telegram mostra cards de posição com rótulo `🧪 PAPER`
 - abertura manual, fechamento, redução e TP/SL funcionam normalmente
 - controles operacionais (pause, intake, autotrading) funcionam normalmente
 
-O rótulo `🧪 PAPER` aparece em cards de abertura, alertas de fechamento, alertas de PnL, confirmações de trade manual e alertas de lucro. Impossível confundir com trading real no Telegram.
+O rótulo `🧪 PAPER` aparece em cards de abertura, alertas de fechamento, alertas de PnL, confirmações de trade manual e alertas de lucro. Impossível confundir com operação real no Telegram.
 
 ---
 
-## Modo paper vs modo live — resumo de comportamento
+## Modo paper vs modo ao vivo — resumo de comportamento
 
 | Comportamento | Paper | Live |
 |--------------|-------|------|
@@ -82,7 +82,7 @@ O rótulo `🧪 PAPER` aparece em cards de abertura, alertas de fechamento, aler
 | Transações live | Simulado em memória | Ordens reais no backend |
 | Rastreamento de saldo | Paper engine (memória) | Conta live do backend |
 | Rastreamento de posições | Paper engine | Estado live do backend |
-| Dashboard mostra dados reais | Sim | Sim |
+| Painel mostra dados reais | Sim | Sim |
 | Alertas de posição no Telegram | Sim, com rótulo 🧪 | Sim |
 | Trading manual | Sim | Sim |
 | Atualização de TP/SL | Sim (simulado) | Ordem no backend quando suportado |
@@ -102,7 +102,7 @@ No entanto, o bot ainda usa metadados do venue (ativos suportados, limites de al
 
 ## Reconciliação em modo paper
 
-O serviço de reconciliação exclui trades paper de ambas as passagens. Posições paper são gerenciadas inteiramente pelo paper engine em memória e nunca são enviadas para a lógica de reconciliação do banco.
+O serviço de reconciliação exclui trades paper de todas as passagens. Posições paper são gerenciadas inteiramente pelo paper engine em memória e nunca são enviadas para a lógica de reconciliação do banco.
 
 ---
 

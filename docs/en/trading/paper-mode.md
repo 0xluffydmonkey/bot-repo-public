@@ -102,7 +102,7 @@ However, the bot still uses venue metadata (supported assets, leverage limits, s
 
 ## Reconciliation in paper mode
 
-The reconciliation service excludes paper trades from both passes. Paper positions are managed entirely by the in-memory paper engine and are never sent to the DB reconciliation logic.
+The reconciliation service excludes paper trades from all passes. Paper positions are managed entirely by the in-memory paper engine and are never sent to the DB reconciliation logic.
 
 ---
 

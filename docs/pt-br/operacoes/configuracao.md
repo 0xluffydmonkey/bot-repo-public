@@ -4,12 +4,12 @@ O bot usa dois arquivos. Mantenha-os separados — um fica no repo, o outro fica
 
 | Arquivo | Localização | O que contém |
 |---------|-------------|-------------|
-| `.env` | `backend/.env` | Configurações de trading, feature flags, paths de arquivos — **sem secrets** |
+| `.env` | `backend/.env` | Configurações de trading, flags de recurso, caminhos de arquivos — **sem segredos** |
 | `bot-secrets.env` | `/opt/bot/secrets/bot-secrets.env` | Credenciais reais — **nunca no repo** |
 
 ---
 
-## Obrigatório — Arquivo de secrets
+## Obrigatório — Arquivo de segredos
 
 `/opt/bot/secrets/bot-secrets.env` deve conter as credenciais reais exigidas pelos módulos e backend habilitados. Para o listener de sinais Telegram, o mínimo é:
 
@@ -21,9 +21,9 @@ TELEGRAM_API_HASH=hash_real
 TELEGRAM_PHONE=+5511999999999
 ```
 
-Se seu backend selecionado precisar de endpoint RPC ou chave de assinatura, adicione esses valores no mesmo arquivo de secrets usando o padrão `*_PATH`. Não coloque chaves raw no `.env`.
+Se seu backend selecionado precisar de endpoint RPC ou chave de assinatura, adicione esses valores no mesmo arquivo de segredos usando o padrão `*_PATH`. Não coloque chaves brutas no `.env`.
 
-Se você usar o control bot Telegram, adicione também:
+Se você usar o bot de controle Telegram, adicione também:
 
 ```env
 TELEGRAM_BOT_TOKEN=123456789:ABCdef...
@@ -54,17 +54,17 @@ Selecione o backend de execução:
 PERP_OPEN_VENUE=drift   # escolha um backend/venue registrado
 ```
 
-Veja [../trading/venues.md](../trading/venues.md) para seleção de backend, prontidão e requisitos por backend.
+Veja [../negociacao/venues.md](../negociacao/venues.md) para seleção de backend, prontidão e requisitos por backend.
 
 ---
 
-## Feature Toggles
+## Controles de Recursos
 
 Controlam quais partes do bot rodam ao chamar `./start.sh`:
 
 ```env
 ENABLE_SIGNAL_LISTENER=true   # receber e processar sinais de trading
-ENABLE_WEB=true               # dashboard web em http://localhost:3000
+ENABLE_WEB=true               # painel web em http://localhost:3000
 ENABLE_CONTROL_BOT=false      # bot Telegram para controle remoto
 WEB_PORT=3000
 ```
@@ -74,7 +74,7 @@ Configurações comuns:
 | O que você quer | Configurações |
 |----------------|--------------|
 | Só trading | `LISTENER=true  WEB=false  CONTROL=false` |
-| Trading + dashboard | `LISTENER=true  WEB=true   CONTROL=false` |
+| Trading + painel | `LISTENER=true  WEB=true   CONTROL=false` |
 | Stack completo | `LISTENER=true  WEB=true   CONTROL=true` |
 
 ---
@@ -104,11 +104,11 @@ RECONCILE_MIN_TRADE_AGE_MS=60000   # idade mínima para eligibilidade no Pass 1 
 RECONCILE_ENRICH_WINDOW_HOURS=2    # janela de lookback para o Pass 2 (padrão: 2 h)
 ```
 
-Veja [reconciliation.md](reconciliation.md).
+Veja [reconciliacao.md](reconciliacao.md).
 
 ---
 
-## Opcional — Paths e logs
+## Opcional — Caminhos e Logs
 
 ```env
 BOT_WALLET_PATH=/opt/bot/secrets/bot-wallet.json
@@ -119,9 +119,9 @@ LOG_DIR=./logs
 
 ---
 
-## Wallets e chaves de assinatura por backend
+## Wallets e Chaves de Assinatura por Backend
 
-Configure o material de chave bruto em arquivos fora do repositório e exponha apenas os paths pelo arquivo de secrets.
+Configure o material de chave bruto em arquivos fora do repositório e exponha apenas os caminhos pelo arquivo de segredos.
 
 Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -141,7 +141,7 @@ VALIANT_ACCOUNT_ADDRESS=0xSeuEnderecoPublico
 | Phoenix | `WALLET_PHOENIX_PATH` (obrigatório quando `PERP_OPEN_VENUE=phoenix`) |
 | Valiant-compatible | `VALIANT_AGENT_KEY_PATH` mais `VALIANT_ACCOUNT_ADDRESS`; `VALIANT_MAIN_KEY_PATH` apenas quando transferência spot→perps é habilitada |
 
-Path de chave ausente = falha segura: modo live recusa iniciar quando o backend selecionado não tem os paths obrigatórios.
+Path de chave ausente = falha segura: modo ao vivo recusa iniciar quando o backend selecionado não tem os caminhos obrigatórios.
 
 Cada arquivo de wallet/chave deve ter `chmod 600` e ser de propriedade do usuário do bot.
 
@@ -153,13 +153,13 @@ Cada arquivo de wallet/chave deve ter `chmod 600` e ser de propriedade do usuár
 ENABLE_AUTO_TRADING_VALIANT=false
 ```
 
-Mantenha os gates específicos de backend desabilitados até que paper testing, preflight e um pequeno teste live manual tenham passado.
+Mantenha os gates específicos de backend desabilitados até que paper testing, pré-validação e um pequeno teste ao vivo manual tenham passado.
 
 ---
 
-## Segurança do dashboard
+## Segurança do Painel
 
-Por padrão, o dashboard só permite operações de escrita a partir de localhost. Para habilitar acesso remoto:
+Por padrão, o painel só permite operações de escrita a partir de localhost. Para habilitar acesso remoto:
 
 Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -177,7 +177,7 @@ Operações de leitura (`GET /api/state`, WebSocket) não requerem autenticaçã
 
 ---
 
-## Saldo do paper mode
+## Saldo do Modo Paper
 
 ```env
 PAPER_INITIAL_BALANCE=5000
@@ -197,8 +197,8 @@ Veja `backend/.env.example` para todas as variáveis disponíveis com comentári
 
 Fluxos de close são venue-aware e não se comportam da mesma forma em todos os casos.
 
-- helpers manuais de close direto podem usar fallback para a venue ativa por compatibilidade retroativa
+- auxiliars manuais de close direto podem usar fallback para a venue ativa por compatibilidade retroativa
 - fluxos remotos, de command-bus e automatizados são mais estritos e recusam o close se a venue não puder ser resolvida de forma segura
-- closes manuais iniciados pelo Telegram ou dashboard web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
+- closes manuais iniciados pelo Telegram ou painel web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
 
-Veja [../trading/close-policy.md](../trading/close-policy.md) para as regras canônicas.
+Veja [../negociacao/politica-de-fechamento.md](../negociacao/politica-de-fechamento.md) para as regras canônicas.

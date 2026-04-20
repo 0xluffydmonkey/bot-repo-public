@@ -1,4 +1,4 @@
-# Systemd — Deploy em Produção
+# Systemd — Implantação em Produção
 
 > **Avançado.** Necessário apenas se você quiser que o bot rode continuamente em um servidor e reinicie automaticamente após quedas ou reinicializações.
 
@@ -13,7 +13,7 @@ Certifique-se de que o bot funciona manualmente primeiro:
 # Pressione Ctrl+C para parar
 ```
 
-Confirme também que o arquivo de sessão Telegram já está em `/opt/bot/secrets/` (veja [running.md](../operations/running.md)).
+Confirme também que o arquivo de sessão Telegram já está em `/opt/bot/secrets/` (veja [execucao.md](../operacoes/execucao.md)).
 
 ---
 
@@ -99,7 +99,7 @@ sudo systemctl edit bot-trader
 
 Arquivo criado/atualizado pelo systemd: `/etc/systemd/system/bot-trader.service.d/override.conf`
 
-Exemplo — forçar paper trading:
+Exemplo — forçar modo paper:
 
 Arquivo: `/etc/systemd/system/bot-trader.service.d/override.conf`
 

@@ -2,7 +2,7 @@
 
 Este guia cobre tudo que um operador precisa para rodar o bot com segurança em produção:
 - superfícies de controle
-- como usar o dashboard
+- como usar o painel
 - como usar o bot de controle Telegram
 - como executar trades manuais e gerenciar posições
 - como usar os controles operacionais (pause, intake, autotrading)
@@ -15,14 +15,14 @@ O bot tem duas superfícies de controle. Ambas leem e escrevem no mesmo estado c
 
 | Superfície | Como acessar | Requer |
 |-----------|-------------|--------|
-| Dashboard web | `http://localhost:3000` (ou IP do servidor + porta) | `ENABLE_WEB=true` no `.env` |
+| Painel web | `http://localhost:3000` (ou IP do servidor + porta) | `ENABLE_WEB=true` no `.env` |
 | Bot de controle Telegram | App do Telegram — qualquer dispositivo | `ENABLE_CONTROL_BOT=true` + token + ID autorizado |
 
 Ambas as superfícies atualizam em tempo real.
 
 ---
 
-## Dashboard
+## Painel
 
 ### O que mostra
 
@@ -38,7 +38,7 @@ Ambas as superfícies atualizam em tempo real.
 |------|------|
 | Pausar execução de sinais | Botão **Pause** |
 | Retomar execução | Botão **Resume** |
-| Ligar/desligar auto-trading | Toggle **Auto-trading** |
+| Ligar/desligar auto-trading | Controle **Auto-trading** |
 | Ligar/desligar intake de sinais | `POST /api/intake` com `{ "enabled": false }` |
 | Fechar uma posição | Botão **Close** ao lado da posição |
 | Fechar todas as posições | Botão **Close All** — requer confirmação |
@@ -48,7 +48,7 @@ Ambas as superfícies atualizam em tempo real.
 
 ### Referência da API REST
 
-Todos os endpoints de escrita requerem autenticação. Defina `WEB_API_TOKEN` no arquivo de secrets para proteger o acesso remoto. Sem ele, apenas conexões de localhost são permitidas.
+Todos os endpoints de escrita requerem autenticação. Defina `WEB_API_TOKEN` no arquivo de segredos para proteger o acesso remoto. Sem ele, apenas conexões de localhost são permitidas.
 
 Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -77,7 +77,7 @@ POST /api/reduce        { asset, reducePercent }   → 1–95% apenas
 ### Configuração
 
 1. Crie um bot via `@BotFather` → `/newbot`
-2. Adicione ao arquivo de secrets:
+2. Adicione ao arquivo de segredos:
 
    Arquivo: `/opt/bot/secrets/bot-secrets.env`
 
@@ -155,7 +155,7 @@ Clique em qualquer posição na lista para ver a tela de detalhe. A partir daí 
 
 ---
 
-## Trading Manual
+## Trades Manuais
 
 ### Abrir uma posição manualmente
 
@@ -196,7 +196,7 @@ curl -X POST http://localhost:3000/api/open \
 
 Via Telegram: navegue até a tela de detalhe da posição → **🔴 Fechar** → confirme.
 
-Via dashboard: clique em **Close** ao lado da posição.
+Via painel: clique em **Close** ao lado da posição.
 
 Via REST:
 ```bash
@@ -208,7 +208,7 @@ curl -X POST http://localhost:3000/api/close \
 
 Os closes são venue-aware — o bot resolve automaticamente qual venue detém a posição.
 
-Closes manuais pelo Telegram ou dashboard web são sempre saídas completas a mercado. Em Valiant/Hyperliquid, o bot implementa isso como ordem IOC reduce-only agressiva.
+Closes manuais pelo Telegram ou painel web são sempre saídas completas a mercado. Em Valiant/Hyperliquid, o bot implementa isso como ordem IOC reduce-only agressiva.
 
 ### Atualizar TP/SL
 
@@ -269,7 +269,7 @@ Diferença do intake: sinais pausados aparecem no histórico. Sinais com intake 
 
 Controle via menu Telegram ou REST `/api/pause`.
 
-### Auto-trading OFF
+### Auto-trading Desligado
 
 O que faz: sinais passam pelos filtros de intake e pausa, mas não são executados. Aparecem no log como `autotrading_disabled`. Útil para "modo observação" — você quer ver quais sinais teriam disparado.
 
@@ -308,4 +308,4 @@ TRAILING_STOP_PERCENT=5              # trailing 5% abaixo do preço máximo
 TRAILING_STOP_ONLY_AFTER_PROFIT_PERCENT=3   # só ativa após +3%
 ```
 
-Alertas Telegram requerem `TELEGRAM_CHAT_ID` no arquivo de secrets.
+Alertas Telegram requerem `TELEGRAM_CHAT_ID` no arquivo de segredos.

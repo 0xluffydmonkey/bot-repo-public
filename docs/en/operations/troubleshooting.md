@@ -265,7 +265,7 @@ After the reduction, the remaining position would be below the venue's minimum s
 
 **Trades stuck in OPEN status**
 
-The reconciliation service should detect this automatically every 5 minutes. Check if it is running:
+The reconciliation service should detect DB `OPEN` trades that disappeared from the active venue and close them automatically. Check if it is running:
 
 ```bash
 journalctl -u bot-trader | grep '\[RECONCILE\]'
@@ -273,8 +273,46 @@ journalctl -u bot-trader | grep '\[RECONCILE\]'
 
 If no reconciliation logs appear, the service may not have started. Check `backend/src/index.js` for `startReconciliation()`.
 
+If logs appear but the trade remains `OPEN`, check:
+
+- The trade venue matches the active venue. Logs with `reconcile_venue_skip` mean the trade belongs to a venue that is not reconciled in this cycle.
+- `fetchPositions()` is succeeding. Logs with `reconcile_fetch_failed` mean the close pass aborted without side effects.
+- The trade is older than `RECONCILE_MIN_TRADE_AGE_MS`.
+- `recordTradeClosed()` found the trade identity. If you see a fallback by `symbol+venue`, verify the trade by `symbol`, `venue`, and timestamps.
+
+See [reconciliation.md](reconciliation.md) for the full identity flow.
+
+**Manual venue position has not appeared in the database**
+
+External adoption is not immediate. The active venue position must appear in 2 consecutive reconciliation cycles before it is persisted as an `OPEN` trade with `open_source='venue_reconciliation'`.
+
+Expected logs:
+
+```text
+event: adopt_candidate_seen
+event: adopt_external_position
+event: trade_external_adopted
+```
+
+If it does not appear:
+
+- Confirm the position is on the active venue.
+- Check `adopt_fetch_failed`; adoption does not run on unreliable snapshots.
+- Check `adopt_candidate_expired`; the position disappeared before confirmation.
+- Check `adopt_skip_no_direction`; the adapter did not provide reliable `LONG`/`SHORT`.
+
+**Adoption did not occur because of ambiguity**
+
+Logs with `adopt_skip_ambiguous` mean the DB already has multiple `OPEN` trades for the same active `venue + asset`. The bot will not guess which one matches the live position. Resolve the duplicate DB state before expecting adoption.
+
 **Exit price stays null after external close**
 
 Pass 2 enrichment only supports `valiant`/Hyperliquid. For other venues, `exit_price` will remain null unless you manually update the database.
 
 For valiant, check that `RECONCILE_ENRICH_WINDOW_HOURS` is large enough to cover the time between the close and the next reconciliation cycle.
+
+If the trade was adopted externally, the same limitation applies: adoption creates and tracks the `OPEN` trade, but enrichment after close still depends on venue fill-history support and the configured lookback window.
+
+**Fallback by symbol+venue appeared in logs**
+
+This is a last-resort close path used when `bot_trade_ref` and in-memory DB id are unavailable, commonly after restart with old or incomplete tracking. It is expected to be rare. Verify that the affected trade has the correct `symbol`, `venue`, `opened_at`, and `closed_at`, then check whether tracking was restored with a `bot_trade_ref`.

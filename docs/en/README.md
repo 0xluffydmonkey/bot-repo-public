@@ -59,7 +59,7 @@ Complete technical and operational reference for TradeFinderBot.
 | [Running](operations/running.md) | Start, stop, status, first run |
 | [Operator Guide](operations/operator-guide.md) | Dashboard, Telegram, manual trading, controls |
 | [Observability](operations/observability.md) | Logs, state, metrics |
-| [Reconciliation](operations/reconciliation.md) | External close detection and trade enrichment |
+| [Reconciliation](operations/reconciliation.md) | Bidirectional venue/DB reconciliation, external adoption, trade enrichment |
 | [Troubleshooting](operations/troubleshooting.md) | Common errors and fixes |
 | [Gaps and Risks](operations/gaps-and-risks.md) | Known limitations and mitigations |
 

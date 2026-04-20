@@ -2,7 +2,12 @@
 
 ## Purpose
 
-Document how the bot detects and persists positions closed by external events — liquidations, TP/SL hits at the exchange, manual close via the venue UI, or bot restarts mid-close — and how it enriches those trades with real fill data.
+Document how the bot reconciles live venue state and database state in both directions:
+
+- DB `OPEN` trade no longer present at the venue -> mark it `CLOSED`.
+- Live venue position missing from the DB -> adopt it as an `OPEN` trade so the bot can monitor and control it.
+
+It also documents how closed trades are enriched with real fill data where supported.
 
 ## Audience
 
@@ -10,7 +15,12 @@ Operators monitoring database consistency and developers extending the service.
 
 ## Why it exists
 
-In live trading, a position can be closed at the venue without the bot initiating the close. If the bot is restarted mid-close, or if the exchange closes a position via liquidation or TP/SL, the `trades` table can be left with an OPEN status indefinitely. The reconciliation system prevents this.
+In live trading, the database is no longer only a record of positions opened by the bot. It can also become the control record for a position opened externally at the venue, such as a manual venue UI open.
+
+The reconciler protects both sides of the state:
+
+- If a venue position is closed externally, the DB must not remain `OPEN` forever.
+- If an untracked live position exists at the active venue, the bot can conservatively persist it and start tracking it.
 
 ## Two-Layer Design
 
@@ -28,7 +38,7 @@ This layer reacts in real time — as soon as the position tracker detects the a
 
 `backend/src/services/positionReconciliationService.js`
 
-A timer-based service that runs every 5 minutes (default) with a 30-second initial delay after boot. It performs two independent passes:
+A timer-based service that runs every 5 minutes (default) with a 30-second initial delay after boot. It performs three independent passes:
 
 **Pass 1 — Status reconciliation:**
 
@@ -43,7 +53,40 @@ A timer-based service that runs every 5 minutes (default) with a 30-second initi
 - Queries DB for CLOSED trades with `exit_price IS NULL` and `mode != 'paper'` within the last `RECONCILE_ENRICH_WINDOW_HOURS` hours (default: 2 h).
 - For each eligible trade, fetches fill history from the venue and aggregates the exit price and realized PnL.
 - Writes the enriched data only if `exit_price IS NULL` — controlled closes that already have fill data are never overwritten.
-- Both passes are independent: Pass 2 failure does not affect Pass 1.
+**Pass 3 — External adoption:**
+
+- Queries live positions from the active venue.
+- Compares them with DB `OPEN` trades for the same active venue.
+- A live position is an adoption candidate only when there is no corresponding DB `OPEN` trade for the same `venue + asset`.
+- If there are multiple DB `OPEN` trades for the same `venue + asset`, adoption is skipped as ambiguous.
+- Direction must be reliable and must be `LONG` or `SHORT`.
+- The candidate must be seen in `MIN_ADOPT_PASSES=2` consecutive reconciliation cycles before it is inserted.
+- The inserted trade is `status='OPEN'`, `mode='live'`, `source='system'`, and the open event payload uses `open_source='venue_reconciliation'`.
+- After adoption, `bot_trade_ref` is generated, injected into position snapshots, stored in tracking, and used by later close/reconciliation/audit flows.
+
+All passes are independent: a failure in one pass does not prevent the others from running.
+
+## Trade Identity Flow
+
+The main identity is `bot_trade_ref`.
+
+For bot-opened trades:
+
+1. `ManualTradeService.executeSignal()` generates or passes a `bot_trade_ref`.
+2. `persistenceService.recordTradeOpened()` inserts the `OPEN` trade and keeps in-memory maps for `${venue}:${symbol}`.
+3. The persistence service injects the ref into `state.positions` updates.
+4. `PositionManager` stores the ref in disk-backed tracking.
+5. On close, `recordTradeClosed(symbol, venue, bot_trade_ref)` prefers the exact ref, then DB id from memory, then a last-resort `symbol + venue` fallback.
+
+For externally adopted trades:
+
+1. Pass 3 sees a live venue position with no DB `OPEN` counterpart.
+2. After 2 consecutive cycles, `recordExternalTradeAdopted()` generates a new `bot_trade_ref`.
+3. The DB receives a new `OPEN` trade and `TRADE_OPEN_*` events with `open_source='venue_reconciliation'`.
+4. The next position updates receive the ref and `PositionManager` persists it into tracking.
+5. From that point, the position participates in alerts, trailing stop logic, manual/trailing closes, external-close detection, and close enrichment where supported.
+
+The duplicate guard is intentionally conservative: adoption happens only when the active venue snapshot has the asset, direction is known, and the DB has exactly zero `OPEN` trades for that `venue + asset`. A DB count above one is treated as ambiguous and skipped.
 
 ## Fill Matching Logic (Valiant/Hyperliquid only)
 
@@ -58,13 +101,13 @@ For `valiant` venue trades, Pass 2 uses the Hyperliquid `userFillsByTime` endpoi
 
 ## Venue Support
 
-| Venue | Pass 1 (close stale OPEN) | Pass 2 (enrich exit_price) |
-|-------|--------------------------|---------------------------|
-| `valiant` | Yes | Yes — via userFillsByTime |
-| `drift` | Yes | No — no fills history endpoint |
-| `jupiter` | Yes (active venue only) | No — not implemented |
-| `phoenix` | Yes (active venue only) | No — not implemented |
-| `paper` | Excluded from both passes | Excluded |
+| Venue | Pass 1 (close stale OPEN) | Pass 2 (enrich exit_price) | Pass 3 (adopt external OPEN) |
+|-------|--------------------------|---------------------------|------------------------------|
+| `valiant` | Yes, active venue only | Yes — via userFillsByTime | Yes, active venue only |
+| `drift` | Yes, active venue only | No — no fills history endpoint | Yes, active venue only |
+| `jupiter` | Yes, active venue only | No — not implemented | Yes only if it is the active live venue |
+| `phoenix` | Yes, active venue only | No — not implemented | Yes only if it is the active live venue |
+| `paper` | Excluded | Excluded | Excluded |
 
 ## Configuration
 
@@ -89,36 +132,99 @@ journalctl -u bot-trader | grep '\[RECONCILE\]'
 Expected on a healthy deployment with no stuck trades:
 
 ```
-[RECONCILE] Serviço de reconciliação iniciado (intervalo: 300s, primeiro ciclo em 30s)
-[RECONCILE] Pass 1: verificando 0 trade(s) OPEN contra N posição(ões) ativas em valiant
-[RECONCILE] Pass 2: 0 trade(s) CLOSED sem exit_price — tentando enriquecimento
+[RECONCILE] reconciliation service started
+[RECONCILE] Pass 1 checked DB OPEN trades against active venue positions
+[RECONCILE] Pass 2 checked recently CLOSED trades missing exit_price
 ```
 
 When a stuck trade is found and closed:
 
 ```
-[RECONCILE] Trade OPEN no banco ausente na venue — reconciliando
-  event: reconcile_close, symbol: SOL, venue: valiant, trade_id: ...
+event: reconcile_close
+symbol: SOL
+venue: valiant
+trade_id: ...
 ```
 
 When enrichment succeeds:
 
 ```
-[RECONCILE] Enrich encontrado para SOL
-  event: reconcile_enrich_found, exit_price: 155.23, realized_pnl: 3.44
+event: reconcile_enrich_found
+symbol: SOL
+exit_price: 155.23
+realized_pnl: 3.44
 ```
+
+When an external venue position is first seen but not yet adopted:
+
+```
+event: adopt_candidate_seen
+asset: SOL
+venue: valiant
+direction: LONG
+seen_count: 1
+```
+
+When adoption succeeds on the second consecutive cycle:
+
+```
+event: adopt_external_position
+asset: SOL
+venue: valiant
+direction: LONG
+seen_count: 2
+
+event: trade_external_adopted
+bot_trade_ref: ...
+```
+
+When a tracked position disappears from live snapshots before the periodic pass:
+
+```
+event: external_close_detected
+asset: SOL
+venue: valiant
+bot_trade_ref: ...
+```
+
+When close identity is missing after restart or old tracking, persistence may log:
+
+```
+FALLBACK by symbol+venue
+venue: valiant
+symbol: SOL
+```
+
+That fallback is expected only as a last resort. Investigate disk tracking and whether `bot_trade_ref` was available before restart.
 
 ## Design Principles
 
 - **Never closes if `fetchPositions()` fails** — absent data ≠ closed position.
+- **Never adopts if `fetchPositions()` fails** — adoption depends on a reliable venue snapshot.
+- **Adoption requires confirmation** — a position must be seen in 2 consecutive cycles.
+- **No duplicate adoption** — if a DB `OPEN` trade already exists for active `venue + asset`, the live position is considered already tracked.
 - **Enrichment only overwrites if `exit_price IS NULL`** — never corrupts data from controlled closes.
 - **Idempotent** — running Pass 1 twice on the same trade changes nothing the second time.
-- **Failure isolation** — Pass 2 failure does not affect Pass 1; individual trade enrichment failure does not affect other trades.
-- **Paper excluded** — paper trades are always excluded from both passes.
+- **Failure isolation** — one pass failing does not prevent the other passes from running; individual trade enrichment failure does not affect other trades.
+- **Paper excluded** — paper trades are always excluded from all reconciliation passes.
+
+## Current Limitations
+
+- Reconciliation considers only the active venue per cycle.
+- Simultaneous multi-venue tracking remains limited, especially for the same asset.
+- `PositionManager` tracking is still keyed by asset, not full `asset + venue + identity`.
+- Adoption depends on the accuracy and completeness of the active venue `fetchPositions()` snapshot.
+- Adoption can be delayed because it depends on reconciliation cycles.
+- Positions opened and closed between cycles, or before two consecutive confirmations, may never be adopted.
+- Fill enrichment currently supports only `valiant`/Hyperliquid.
+- After restart, the adoption confirmation counter is cleared; an external position must be seen twice again before adoption.
 
 ## Troubleshooting
 
-- Reconciliation logs never appear: check `[RECONCILE] Serviço de reconciliação iniciado` — if missing, the service was not imported in `index.js`.
-- Pass 1 always finds stuck trades: check if `fetchPositions()` is working; look for `reconcile_fetch_failed` events.
-- Pass 2 never enriches: confirm venue is `valiant`; check for `reconcile_enrich_fetch_failed` or `reconcile_enrich_no_fills` events.
-- `exit_price` stays null for a valiant trade: the closing fills may be outside the time window. Check `RECONCILE_ENRICH_WINDOW_HOURS`.
+- Reconciliation logs never appear: check for the reconciliation service startup log — if missing, the service was not imported in `index.js`.
+- DB trade closed at venue but still `OPEN`: check active venue, `reconcile_venue_skip`, `reconcile_fetch_failed`, and whether the trade is younger than `RECONCILE_MIN_TRADE_AGE_MS`.
+- Manual venue position has not appeared in DB: wait for two reconciliation cycles; check for `adopt_candidate_seen`, `adopt_fetch_failed`, or `adopt_candidate_expired`.
+- Adoption did not occur because of ambiguity: look for `adopt_skip_ambiguous`; resolve duplicate DB `OPEN` trades for the same `venue + asset` before expecting adoption.
+- Adoption skipped because direction is missing: look for `adopt_skip_no_direction`; the venue adapter must provide a reliable `LONG` or `SHORT`.
+- Adopted trade did not enrich after close: Pass 2 enrichment only supports `valiant`; for valiant, check `RECONCILE_ENRICH_WINDOW_HOURS`, `reconcile_enrich_fetch_failed`, `reconcile_enrich_no_fills`, and `reconcile_enrich_skipped`.
+- Fallback by `symbol+venue` appeared in logs: this means `bot_trade_ref` and in-memory DB id were unavailable. It can happen after restart with old/corrupt tracking; verify the affected trade by `symbol`, `venue`, and timestamps.

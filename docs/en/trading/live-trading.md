@@ -86,7 +86,14 @@ TP/SL on Valiant/Hyperliquid uses native trigger orders with `triggerPx`, a vali
 
 ## Reconciliation in Live Mode
 
-In live mode, the reconciliation service automatically detects positions closed externally (liquidations, venue UI, TP/SL hits at exchange, bot restarts mid-close) and updates the database. For Valiant/Hyperliquid, it also enriches the closed trade record with `exit_price` and `realized_pnl` from fill history. See [../operations/reconciliation.md](../operations/reconciliation.md).
+In live mode, reconciliation is bidirectional:
+
+- DB `OPEN` trades that no longer exist at the active venue are reconciled to `CLOSED`.
+- Live positions found at the active venue with no matching DB `OPEN` trade can be adopted as new persisted `OPEN` trades.
+
+Adoption is conservative. The position must be visible for 2 consecutive reconciliation cycles, have a reliable `LONG`/`SHORT` direction, and have no existing `OPEN` trade for the same active `venue + asset`. The adopted trade uses `open_source='venue_reconciliation'`, receives a `bot_trade_ref`, appears in the DB as `OPEN`, and then participates in tracking, alerts, trailing stops, manual/trailing closes, and reconciled external closes.
+
+For Valiant/Hyperliquid, closed trade records can also be enriched with `exit_price` and `realized_pnl` from fill history. Reconciliation currently considers only the active venue per cycle, so do not treat simultaneous multi-venue operation as fully solved. See [../operations/reconciliation.md](../operations/reconciliation.md).
 
 ## Risks
 
@@ -95,6 +102,7 @@ In live mode, the reconciliation service automatically detects positions closed 
 - High: enabling auto-trading without a manual close test.
 - High: Valiant auto-transfer using agent key instead of main key.
 - Medium: external persistence unavailable reduces audit capability.
+- Medium: manual venue positions may be adopted with a delay, or not adopted if opened and closed before two reconciliation confirmations.
 
 ## Troubleshooting
 

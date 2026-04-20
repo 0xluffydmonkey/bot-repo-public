@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Documentar do zero a configuração Supabase usada pelo projeto para persistência externa, auditoria de trades, métricas do dashboard e deduplicação de notificações Telegram.
+Documentar do zero a configuração Supabase usada pelo projeto para persistência externa, auditoria de trades, métricas do painel e deduplicação de notificações Telegram.
 
 ## Público-alvo
 
@@ -15,12 +15,12 @@ Já implementado:
 - `pg` como cliente PostgreSQL em `backend/src/services/persistenceService.js`
 - Conexão lazy via `SUPABASE_DB_URL_PATH`
 - Persistência best-effort de trades, eventos, ordens, snapshots, decisões e notificações
-- Endpoints do dashboard para métricas e auditoria
-- Fail-fast bloqueando `SUPABASE_DB_URL` raw no ambiente
+- Endpoints do painel para métricas e auditoria
+- Fail-fast bloqueando `SUPABASE_DB_URL` brutas no ambiente
 
 Parcialmente implementado:
 
-- Migrations formais versionadas não existem no repo; o schema abaixo deve ser aplicado manualmente no SQL Editor do Supabase ou por ferramenta externa controlada.
+- Migrations formais versionadas não existem no repo; o esquema abaixo deve ser aplicado manualmente no SQL Editor do Supabase ou por ferramenta externa controlada.
 - Persistência não bloqueia trading; falhas geram logs e dados históricos incompletos.
 
 Não implementado:
@@ -37,14 +37,14 @@ Durante operação:
 - Abertura de trade: insere em `trades`, `trade_events`, `orders`, `balance_snapshots`, `signal_decisions`
 - Fechamento: atualiza `trades`, insere evento e ordem de close quando há `bot_trade_ref`
 - Notificações Telegram: usa `telegram_notifications_sent` para deduplicar alertas entre restarts
-- Dashboard: lê `trades` para métricas e tabelas de auditoria por `bot_trade_ref`
+- Painel: lê `trades` para métricas e tabelas de auditoria por `bot_trade_ref`
 
 ## Dependências e Pré-requisitos
 
 - Conta Supabase
 - Projeto Supabase criado
 - Senha do banco ou connection string PostgreSQL
-- Schema SQL aplicado
+- Esquema SQL aplicado
 - Arquivo externo com connection string:
 
 ```
@@ -66,16 +66,16 @@ Obrigatório para métricas/auditoria externa:
 - Projeto Supabase
 - Connection string PostgreSQL em arquivo externo
 - `SUPABASE_DB_URL_PATH`
-- Tabelas do schema abaixo
+- Tabelas do esquema abaixo
 
 Não necessário hoje:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- RLS para acesso pelo dashboard
+- RLS para acesso pelo painel
 
-## Padrão Seguro de Secrets
+## Padrão Seguro de Segredos
 
 Não use:
 
@@ -103,7 +103,7 @@ Substitua o exemplo pela connection string real. Não commite esse arquivo.
 
 ## Como Criar o Projeto no Supabase
 
-1. Acesse o dashboard do Supabase.
+1. Acesse o painel do Supabase.
 2. Crie um novo projeto.
 3. Escolha região próxima da VM quando possível.
 4. Defina uma senha forte para o banco.
@@ -111,9 +111,9 @@ Substitua o exemplo pela connection string real. Não commite esse arquivo.
 6. Abra `Project Settings` → `Database`.
 7. Copie a connection string PostgreSQL. Para VM, prefira o pooler quando disponível.
 8. Grave a connection string no arquivo externo `supabase-db-url.txt`.
-9. Abra `SQL Editor` e aplique o schema completo abaixo.
+9. Abra `SQL Editor` e aplique o esquema completo abaixo.
 
-## Schema SQL Completo
+## Esquema SQL Completo
 
 Execute este SQL uma vez no SQL Editor do Supabase. Ele é idempotente para tabelas/índices principais.
 
@@ -127,7 +127,7 @@ create table if not exists trades (
   side           text not null check (side in ('LONG', 'SHORT')),
   status         text not null check (status in ('OPEN', 'CLOSED', 'CANCELLED')),
   mode           text not null check (mode in ('paper', 'live')),
-  source         text not null check (source in ('auto', 'telegram', 'dashboard', 'system')),
+  source         text not null check (source in ('auto', 'telegram', 'painel', 'system')),
   venue          text not null,
   strategy_name  text,
   entry_price    numeric,
@@ -241,9 +241,9 @@ create unique index if not exists idx_trades_bot_trade_ref_unique
   where bot_trade_ref is not null;
 ```
 
-Para tabelas auxiliares ausentes, use o schema completo. Evite apagar tabelas com histórico sem backup.
+Para tabelas auxiliares ausentes, use o esquema completo. Evite apagar tabelas com histórico sem backup.
 
-## RLS e Policies
+## RLS e Políticas
 
 O bot usa conexão PostgreSQL direta pelo backend. O frontend não acessa o Supabase diretamente. Portanto, RLS não é necessária para o fluxo atual.
 
@@ -262,7 +262,7 @@ insert into trades (
   bot_trade_ref, symbol, side, status, mode, source, venue,
   entry_price, size, leverage
 ) values (
-  gen_random_uuid()::text, 'SOL', 'LONG', 'OPEN', 'paper', 'dashboard', 'paper',
+  gen_random_uuid()::text, 'SOL', 'LONG', 'OPEN', 'paper', 'painel', 'paper',
   150, 100, 5
 )
 returning *;
@@ -330,7 +330,7 @@ curl -sS http://127.0.0.1:3000/api/metrics/summary
 
 `SUPABASE_DB_URL detectado no ambiente`
 
-Remova a connection string raw e use `SUPABASE_DB_URL_PATH`.
+Remova a connection string bruta e use `SUPABASE_DB_URL_PATH`.
 
 `Não foi possível ler SUPABASE_DB_URL_PATH`
 
@@ -338,11 +338,11 @@ Arquivo ausente, path errado ou permissão incorreta.
 
 `relation "trades" does not exist`
 
-Schema não foi aplicado.
+Esquema não foi aplicado.
 
 `column "created_at" does not exist`
 
-Schema antigo. Aplique a migração ou recrie a tabela auxiliar correta.
+Esquema antigo. Aplique a migração ou recrie a tabela auxiliar correta.
 
 `password authentication failed`
 
@@ -356,16 +356,16 @@ Rede, firewall, pooler ou host incorreto.
 
 - Alto: connection string no `.env` ou commitada.
 - Alto: policies públicas ou service role exposta.
-- Médio: schema parcial gera métricas/auditoria incompletas.
+- Médio: esquema parcial gera métricas/auditoria incompletas.
 - Médio: indisponibilidade do Supabase não bloqueia trading, mas reduz rastreabilidade.
 - Baixo: dados paper e live convivem na mesma tabela, separados por `mode`.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] Projeto Supabase criado
 - [ ] Connection string salva apenas em `/opt/bot/secrets/supabase-db-url.txt`
 - [ ] `SUPABASE_DB_URL_PATH` configurado no secrets file
-- [ ] Schema completo aplicado
+- [ ] Esquema completo aplicado
 - [ ] `node backend/test-supabase/teste.js` conecta
 - [ ] Boot mostra `[PERSIST] ✓ Conectado`
 - [ ] Endpoints de métricas respondem

@@ -12,7 +12,7 @@ Operadores e desenvolvedores em diagnóstico.
 
 - Logger Winston em `backend/src/utils/logger.js`
 - journald quando rodando via systemd
-- Dashboard opcional
+- Painel opcional
 - Supabase opcional para métricas históricas
 
 ## Onde se encaixa
@@ -35,7 +35,7 @@ logs/bot-YYYY-MM-DD.log
 logs/errors-YYYY-MM-DD.log
 ```
 
-## Logs systemd
+## Logs do systemd
 
 ```bash
 journalctl -u bot-trader -f -o cat
@@ -49,7 +49,7 @@ journalctl -u bot-trader -n 50 -o cat | grep '\[CONFIG\]\|\[START\]'
 curl -sS http://127.0.0.1:3000/api/state
 ```
 
-O dashboard também recebe updates por Socket.IO.
+O painel também recebe updates por Socket.IO.
 
 ## Métricas Históricas
 
@@ -74,12 +74,12 @@ Sem Supabase, esses endpoints retornam dados vazios/default porque o service é 
 | `[CONFIG]` | Carregamento de configuração no boot |
 | `[START]` | Sequência de boot |
 | `[BOT]` | Estado principal do bot |
-| `[TELEGRAM]` | Listener de sinais e control bot |
+| `[TELEGRAM]` | Listener de sinais e bot de controle |
 | `[TRADE]` | Execução de trades |
 | `[PM]` | Position manager |
 | `[PERSIST]` | Persistência no banco |
-| `[RECONCILE]` | Serviço de reconciliação (Pass 1 e Pass 2) |
-| `[WEB]` | Servidor do dashboard |
+| `[RECONCILE]` | Serviço de reconciliação: fecha `OPEN` travado no banco, enriquece closes e adota posições externas da venue |
+| `[WEB]` | Servidor do painel |
 | `[RISK]` | Decisões do risk manager |
 
 ## Logs de Reconciliação
@@ -98,21 +98,25 @@ Eventos-chave para observar:
 [RECONCILE] Trade OPEN no banco ausente na venue — reconciliando
 [RECONCILE] Pass 2: N trade(s) CLOSED sem exit_price ...
 [RECONCILE] Enrich encontrado para SYMBOL
+[RECONCILE] Pass 3: posição ... não rastreada no banco — aguardando confirmação
+[RECONCILE] Pass 3: adotando posição externa
 ```
+
+Para interpretação e limitações, veja [reconciliacao.md](reconciliacao.md).
 
 ## Riscos
 
-- Alto: logs não devem conter secrets.
+- Alto: logs não devem conter segredos.
 - Médio: `LOG_DIR` sem permissão impede arquivos, mas journald ainda pode capturar console.
 - Médio: Supabase fora do ar remove histórico/auditoria, não bloqueia trading.
 
-## Troubleshooting
+## Resolução de Problemas
 
 - Sem logs em arquivo: confira `LOG_DIR` e usuário do processo.
 - Sem logs systemd: confira unit e `SyslogIdentifier`.
-- Métricas vazias: confira schema Supabase e `SUPABASE_DB_URL_PATH`.
+- Métricas vazias: confira esquema Supabase e `SUPABASE_DB_URL_PATH`.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] Logs aparecem em journald
 - [ ] Arquivos rotativos são escritos

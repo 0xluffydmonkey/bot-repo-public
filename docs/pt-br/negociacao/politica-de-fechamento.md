@@ -1,4 +1,4 @@
-# Política de Close
+# Política de Fechamento
 
 Este documento é a fonte canônica de verdade sobre como o bot resolve a venue durante operações de fechamento.
 
@@ -22,7 +22,7 @@ Alguns fluxos podem usar o passo 3. Outros devem falhar de forma segura e recusa
 
 ### Fluxos manuais / operador local
 
-Esses são helpers manuais disparados diretamente pelo operador.
+Esses são auxiliars manuais disparados diretamente pelo operador.
 
 Regra:
 
@@ -43,7 +43,7 @@ Implementação atual:
 
 ### Fluxos remotos do operador
 
-Esses são closes acionados por humanos a partir de superfícies remotas de controle, como dashboard ou bot de controle do Telegram.
+Esses são closes acionados por humanos a partir de superfícies remotas de controle, como painel ou bot de controle do Telegram.
 
 Regra:
 
@@ -57,14 +57,14 @@ Objetivo:
 
 Implementação atual:
 
-- fluxos REST e Socket.IO do dashboard em `backend/src/web/server.js`
+- fluxos REST e Socket.IO do painel em `backend/src/web/server.js`
 - callbacks de close individual no Telegram em `backend/src/telegram/handlers/callbacks.js`
 
 Observações:
 
 - o close individual no Telegram normalmente emite `pos.venue` explicitamente
-- os fluxos remotos do operador são intencionalmente mais estritos do que os helpers manuais locais
-- closes manuais pelo Telegram e dashboard web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
+- os fluxos remotos do operador são intencionalmente mais estritos do que os auxiliars manuais locais
+- closes manuais pelo Telegram e painel web são sempre saídas completas a mercado; em Valiant/Hyperliquid isso é implementado como IOC reduce-only agressivo
 
 ---
 
@@ -84,7 +84,7 @@ Objetivo:
 
 Implementação atual:
 
-- handlers `cmd:close` e `cmd:close_all` em `backend/src/index.js`
+- manipuladores `cmd:close` e `cmd:close_all` em `backend/src/index.js`
 - trailing/system close em `backend/src/trading/position-management/PositionManager.js`
 
 ---
@@ -96,7 +96,7 @@ Implementação atual:
 Regras:
 
 - fluxos `close_all` de command-bus, admin e sistema não usam fallback para a venue ativa
-- o helper manual direto `closeAllManualTrades()` ainda permite fallback por compatibilidade retroativa
+- o auxiliar manual direto `closeAllManualTrades()` ainda permite fallback por compatibilidade retroativa
 
 Objetivo:
 
@@ -105,7 +105,7 @@ Objetivo:
 Implementação atual:
 
 - comportamento estrito em `backend/src/index.js`
-- fallback ainda permitido no helper manual em `backend/src/trading/ManualTradeService.js`
+- fallback ainda permitido no auxiliar manual em `backend/src/trading/ManualTradeService.js`
 - o `close_all` do Telegram atualmente usa `state.positions[0]?.venue` sob a suposição prática de uma única venue por vez
 
 ---
@@ -140,11 +140,11 @@ Implementação atual:
 
 - trailing/system close chama o resolver com `allowActiveFallback: false`
 
-### Dashboard
+### Painel
 
 `backend/src/web/server.js`
 
-- fluxos REST / Socket do dashboard resolvem a venue antes de emitir eventos para o command-bus
+- fluxos REST / Socket do painel resolvem a venue antes de emitir eventos para o command-bus
 - seguem a política estrita do command-bus
 
 ### Controle por Telegram
@@ -161,4 +161,4 @@ Implementação atual:
 - o rastreamento ainda é por `asset`, não por `asset + venue`
 - operação simultânea da mesma `asset` em múltiplas venues ainda não é suportada
 - `close_all` ainda reflete a suposição prática de uma única venue por vez
-- os fluxos remotos do operador são mais estritos do que os helpers manuais locais por design
+- os fluxos remotos do operador são mais estritos do que os auxiliars manuais locais por design

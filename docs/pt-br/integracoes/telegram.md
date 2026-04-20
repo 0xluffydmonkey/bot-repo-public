@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Documentar a integração Telegram: listener MTProto para sinais, sessão por arquivo externo e control bot opcional.
+Documentar a integração Telegram: listener MTProto para sinais, sessão por arquivo externo e bot de controle opcional.
 
 ## Público-alvo
 
@@ -25,7 +25,7 @@ Operadores que configuram sinais, controle remoto e alertas.
 
 ## Padrão Seguro de Sessão
 
-Não use `TELEGRAM_SESSION` em env. O boot rejeita essa variável raw. Use:
+Não use `TELEGRAM_SESSION` em env. O boot rejeita essa variável brutas. Use:
 
 ```env
 TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt
@@ -61,7 +61,7 @@ TELEGRAM_SESSION_PATH=/opt/bot/secrets/telegram_session.txt
 ENABLE_SIGNAL_LISTENER=true
 ```
 
-Para o control bot:
+Para o bot de controle:
 
 ```env
 ENABLE_CONTROL_BOT=true
@@ -76,17 +76,17 @@ TELEGRAM_CONTROL_ALLOWED_IDS=123456789,987654321
 
 ## Operação Remota
 
-O control bot permite pausar, retomar, controlar auto-trading, abrir trades manuais, fechar, reduzir e atualizar TP/SL conforme handlers existentes.
+O bot de controle permite pausar, retomar, controlar auto-trading, abrir trades manuais, fechar, reduzir e atualizar TP/SL conforme manipuladores existentes.
 
 Regras importantes:
 
 - IDs autorizados devem estar em `TELEGRAM_CONTROL_ALLOWED_IDS`.
 - Se `ENABLE_CONTROL_BOT=true`, o fail-fast exige token e IDs.
-- Fechamentos remotos usam resolução de venue mais estrita que helpers locais.
+- Fechamentos remotos usam resolução de venue mais estrita que auxiliars locais.
 
 ## Formato de Trade Manual
 
-Texto livre de uma linha no control bot:
+Texto livre de uma linha no bot de controle:
 
 ```
 SOL LONG 150 165 142 5 isolated
@@ -100,19 +100,19 @@ ATIVO DIREÇÃO ENTRADA TP SL ALAVANCAGEM [MARGEM]
 
 ## Riscos
 
-- Crítico: sessão Telegram raw no `.env` ou commitada.
+- Crítico: sessão Telegram brutas no `.env` ou commitada.
 - Alto: `TELEGRAM_CONTROL_ALLOWED_IDS` vazio pode permitir acesso amplo dependendo da configuração.
-- Alto: control bot habilitado em live sem operadores revisados.
+- Alto: bot de controle habilitado em live sem operadores revisados.
 - Médio: canal errado em `TELEGRAM_CHANNEL_ID` gera silêncio operacional.
 
-## Troubleshooting
+## Resolução de Problemas
 
 - Login interativo aparece sempre: confira `TELEGRAM_SESSION_PATH`, conteúdo e permissão.
 - Sinais não chegam: confirme canal, conta autorizada no canal e `ENABLE_SIGNAL_LISTENER=true`.
 - Control bot não responde: confira token, polling, allowed IDs e logs `[CTRL]`.
 - Acesso negado: compare seu user ID com `TELEGRAM_CONTROL_ALLOWED_IDS`.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] Sessão está fora do repo
 - [ ] `TELEGRAM_SESSION` não existe no ambiente

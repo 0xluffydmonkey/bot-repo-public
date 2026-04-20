@@ -1,4 +1,4 @@
-# Live Trading
+# Operação ao Vivo
 
 ## Propósito
 
@@ -6,19 +6,19 @@ Documentar os cuidados para operar com dinheiro real usando a implementação at
 
 ## Público-alvo
 
-Operadores autorizados a executar live trading.
+Operadores autorizados a executar operação ao vivo.
 
 ## Pré-requisitos
 
 - `PAPER_TRADING=false`
 - Venue live-ready: hoje `drift` ou `valiant`
-- Secrets externos configurados
+- Segredos externos configurados
 - Wallet/key via arquivo externo
 - Preflight manual e teste live pequeno concluídos
 
 ## Onde se encaixa
 
-O live trading usa `PerpExecutionService` para rotear para o adapter da venue ativa. O risk manager roda antes da execução e aplica limites: `POSITION_SIZE_PCT`, `MAX_LEVERAGE`, `MAX_POSITIONS`, `MIN_FREE_MARGIN_PCT`, `MAX_TOTAL_EXPOSURE_PCT`.
+O operação ao vivo usa `PerpExecutionService` para rotear para o adaptador da venue ativa. O risk manager roda antes da execução e aplica limites: `POSITION_SIZE_PCT`, `MAX_LEVERAGE`, `MAX_POSITIONS`, `MIN_FREE_MARGIN_PCT`, `MAX_TOTAL_EXPOSURE_PCT`.
 
 ## Configuração Base
 
@@ -60,7 +60,7 @@ VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 ## Passo a Passo Seguro
 
 1. Rodar paper por pelo menos um ciclo operacional relevante.
-2. Confirmar logs, Telegram, dashboard e closes.
+2. Confirmar logs, Telegram, painel e closes.
 3. Configurar live com `POSITION_SIZE_PCT` baixo.
 4. Confirmar venue live-ready.
 5. Rodar boot e conferir fail-fast sem warnings críticos.
@@ -70,7 +70,7 @@ VALIANT_MAIN_KEY_PATH=/opt/bot/secrets/valiant-main-key.txt
 
 ## Gates de Auto-Trading
 
-Existe gate global em runtime: dashboard/control bot alternam `state.status.autoTrading`.
+Existe gate global em runtime: painel/bot de controle alternam `state.status.autoTrading`.
 
 Valiant também tem gate específico:
 
@@ -82,11 +82,18 @@ Enquanto esse flag não for `true`, sinais automáticos para Valiant são bloque
 
 ## TP/SL em Valiant/Hyperliquid
 
-TP/SL usa trigger orders nativas com `triggerPx`, preço limite agressivo válido `p`, `grouping: "positionTpsl"` e campos numéricos normalizados em wire format antes da assinatura. Sempre verifique se as trigger orders foram aceitas pela venue após abrir uma posição. Veja [close-policy.md](close-policy.md).
+TP/SL usa trigger orders nativas com `triggerPx`, preço limite agressivo válido `p`, `grouping: "positionTpsl"` e campos numéricos normalizados em wire format antes da assinatura. Sempre verifique se as trigger orders foram aceitas pela venue após abrir uma posição. Veja [politica-de-fechamento.md](politica-de-fechamento.md).
 
 ## Reconciliação em Modo Live
 
-Em modo live, o serviço de reconciliação detecta automaticamente posições fechadas externamente (liquidações, UI da venue, TP/SL hits na exchange, reinício do bot durante um close) e atualiza o banco. Para Valiant/Hyperliquid, ele também enriquece o registro do trade fechado com `exit_price` e `realized_pnl` do histórico de fills. Veja [../operations/reconciliation.md](../operations/reconciliation.md).
+Em modo ao vivo, a reconciliação é bidirecional:
+
+- trades `OPEN` no banco que não existem mais na venue ativa são reconciliados para `CLOSED`.
+- posições live encontradas na venue ativa sem trade `OPEN` correspondente no banco podem ser adotadas como novos trades `OPEN` persistidos.
+
+A adoção é conservadora. A posição precisa aparecer em 2 ciclos consecutivos de reconciliação, ter direção `LONG`/`SHORT` confiável e não ter trade `OPEN` existente para o mesmo `venue + asset` ativo. O trade adotado usa `open_source='venue_reconciliation'`, recebe `bot_trade_ref`, aparece no banco como `OPEN` e passa a participar de tracking, alertas, trailing stops, closes manuais/trailing e closes externos reconciliados.
+
+Para Valiant/Hyperliquid, registros de trades fechados também podem ser enriquecidos com `exit_price` e `realized_pnl` do histórico de fills. A reconciliação hoje considera apenas a venue ativa por ciclo, então não trate operação multi-venue simultânea como plenamente resolvida. Veja [../operacoes/reconciliacao.md](../operacoes/reconciliacao.md).
 
 ## Riscos
 
@@ -95,15 +102,16 @@ Em modo live, o serviço de reconciliação detecta automaticamente posições f
 - Alto: habilitar auto-trading sem teste manual de close.
 - Alto: Valiant auto-transfer usando agent key em vez da main key.
 - Médio: persistência externa indisponível reduz auditoria.
+- Médio: posições manuais na venue podem ser adotadas com atraso, ou não ser adotadas se abertas e fechadas antes de duas confirmações de reconciliação.
 
-## Troubleshooting
+## Resolução de Problemas
 
-- Live não inicia: confira `validateEnv` e paths obrigatórios.
+- Live não inicia: confira `validateEnv` e caminhos obrigatórios.
 - Venue não pronta: veja [venues.md](venues.md).
 - Sinal ignorado: confira pause, intake, auto-trading global e gate da venue.
 - Falha de saldo: confira free collateral, spot/perps e limites do risk manager.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] `PAPER_TRADING=false` foi decisão consciente
 - [ ] Wallet/key fica fora do repo

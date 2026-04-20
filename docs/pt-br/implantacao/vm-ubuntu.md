@@ -1,8 +1,8 @@
-# Deploy / Operação em VM Ubuntu
+# Implantação e Operação em VM Ubuntu
 
 ## Propósito
 
-Documentar o caminho operacional para rodar o bot em uma VM Ubuntu com baixo risco e sem expor secrets no repositório.
+Documentar o caminho operacional para rodar o bot em uma VM Ubuntu com baixo risco e sem expor segredos no repositório.
 
 ## Público-alvo
 
@@ -19,7 +19,7 @@ Operadores responsáveis por staging/produção em VM.
 
 ## Onde se encaixa
 
-O repo fica em um path operacional, por exemplo `/home/ubuntu/bot-repo`. Secrets ficam em `/opt/bot/secrets`. O systemd executa `./start.sh`, que delega para `backend/start.sh`.
+O repo fica em um path operacional, por exemplo `/home/ubuntu/bot-repo`. Segredos ficam em `/opt/bot/secrets`. O systemd executa `./start.sh`, que delega para `backend/start.sh`.
 
 ## Passo a Passo
 
@@ -31,7 +31,7 @@ sudo chown -R ubuntu:ubuntu /opt/bot
 chmod 700 /opt/bot/secrets /opt/bot/wallets
 ```
 
-2. Configurar o arquivo de secrets:
+2. Configurar o arquivo de segredos:
 
 ```bash
 touch /opt/bot/secrets/bot-secrets.env
@@ -80,7 +80,7 @@ SOLANA_RPC_URL=https://provedor-rpc.example
 WEB_API_TOKEN=token_longo_aleatorio
 ```
 
-Não coloque private key, sessão Telegram raw ou connection string Supabase diretamente no repo. Para Supabase use `SUPABASE_DB_URL_PATH`.
+Não coloque private key, sessão Telegram brutas ou connection string Supabase diretamente no repo. Para Supabase use `SUPABASE_DB_URL_PATH`.
 
 ## Validações
 
@@ -91,21 +91,21 @@ curl -sS http://127.0.0.1:3000/api/state
 
 ## Riscos
 
-- Crítico: secrets dentro do repo ou permissão aberta em `/opt/bot/secrets`.
-- Alto: dashboard exposto remotamente sem `WEB_API_TOKEN`.
-- Alto: live trading ligado antes de paper e preflight.
+- Crítico: segredos dentro do repo ou permissão aberta em `/opt/bot/secrets`.
+- Alto: painel exposto remotamente sem `WEB_API_TOKEN`.
+- Alto: operação ao vivo ligado antes de paper e pré-validação.
 - Médio: systemd apontando para repo/path antigo.
 
-## Troubleshooting
+## Resolução de Problemas
 
-- `ConditionPathExists` falha: confira paths no arquivo de service.
+- `ConditionPathExists` falha: confira caminhos no arquivo de service.
 - `node binary not found`: instale Node 18+ ou ajuste o ambiente do usuário systemd.
 - Sem logs de arquivo: confira `LOG_DIR` e permissão de escrita.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] Bot inicia manualmente em paper
-- [ ] Secrets externos existem com `chmod 600`
+- [ ] Segredos externos existem com `chmod 600`
 - [ ] systemd habilitado e `active (running)`
-- [ ] Dashboard remoto (se usado) protegido por token
-- [ ] Live só após checklist específico de live trading
+- [ ] Painel remoto (se usado) protegido por token
+- [ ] Live só após lista de verificação específico de operação ao vivo

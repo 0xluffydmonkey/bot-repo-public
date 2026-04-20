@@ -31,6 +31,7 @@ Maintainers, operators, and security reviewers.
 | Medium | Multi-venue simultaneous tracking for the same asset has limits | Partial | strict remote close; docs advise one venue at a time in practice |
 | Medium | `scripts/scan-secrets.sh` does not cover all blocked raw secrets | Tool gap | use `validateEnv` at boot and human review; expand script in a future change |
 | Medium | Reconciliation enrichment (Pass 2) only supports valiant | Known limitation | documented; drift/jupiter/phoenix will leave `exit_price = null` for external closes |
+| Medium | Reconciliation/adoption considers only the active venue per cycle | Known limitation | documented in reconciliation/live trading; operate one live venue at a time in practice |
 | Low | Old docs in previous structure | Compatibility | new structure replaces them; old files to be removed |
 
 ## Important Notes
@@ -41,7 +42,7 @@ Jupiter and Phoenix exist in the code as manifests/adapters, but the manifests d
 
 Valiant is live-ready, but with an extra gate for automatic auto-trading. Manual live still requires operational care and a small test.
 
-The reconciliation service does not create new trades or modify `status` for CLOSED trades — it only updates `OPEN` → `CLOSED` and enriches `exit_price` where null.
+The reconciliation service is bidirectional. It updates stale DB `OPEN` trades to `CLOSED`, enriches `exit_price` where supported, and can create an `OPEN` trade by adopting a live position from the active venue. Adoption is limited to confirmed, unambiguous active-venue positions and uses `open_source='venue_reconciliation'`.
 
 ## Recommended Incremental Actions
 

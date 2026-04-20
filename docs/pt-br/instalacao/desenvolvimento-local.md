@@ -1,8 +1,8 @@
-# Setup Local / Desenvolvimento
+# Configuração Local e Desenvolvimento
 
 ## Propósito
 
-Setup local seguro para desenvolvimento e validação incremental sem acionar dinheiro real.
+Configuração local segura para desenvolvimento e validação incremental sem acionar dinheiro real.
 
 ## Público-alvo
 
@@ -18,7 +18,7 @@ Desenvolvedores e operadores que precisam testar mudanças sem execução live.
 
 ## Como se encaixa
 
-O setup local usa o mesmo backend de produção, mas deve rodar com `PAPER_TRADING=true`. O arquivo `backend/.env` fica no repo local com configurações não secretas; secrets ficam em `/opt/bot/secrets/bot-secrets.env` ou outro path externo apontado por `BOT_SECRETS_FILE`.
+A configuração local usa o mesmo backend de produção, mas deve rodar com `PAPER_TRADING=true`. O arquivo `backend/.env` fica no repo local com configurações não secretas; segredos ficam em `/opt/bot/secrets/bot-secrets.env` ou outro caminho externo apontado por `BOT_SECRETS_FILE`.
 
 ## Passo a Passo
 
@@ -36,7 +36,7 @@ cd ..
 cp backend/.env.example backend/.env
 ```
 
-3. Manter o `.env` sem secrets. Exemplo mínimo:
+3. Manter o `.env` sem segredos. Exemplo mínimo:
 
 ```env
 TELEGRAM_CHANNEL_ID=-1001234567890
@@ -50,7 +50,7 @@ LOG_LEVEL=info
 LOG_DIR=./logs
 ```
 
-4. Criar a pasta externa de secrets:
+4. Criar a pasta externa de segredos:
 
 ```bash
 sudo mkdir -p /opt/bot/secrets
@@ -60,7 +60,7 @@ touch /opt/bot/secrets/bot-secrets.env
 chmod 600 /opt/bot/secrets/bot-secrets.env
 ```
 
-5. Adicionar apenas os secrets necessários ao arquivo externo:
+5. Adicionar apenas os segredos necessários ao arquivo externo:
 
 ```env
 TELEGRAM_API_ID=12345678
@@ -89,7 +89,7 @@ cd backend
 npm run paper
 ```
 
-Rodar stack com dashboard e control bot via flags legacy (ainda suportadas):
+Rodar stack com painel e bot de controle via flags legacy (ainda suportadas):
 
 ```bash
 cd backend
@@ -101,21 +101,21 @@ O caminho canônico é definir `ENABLE_WEB` e `ENABLE_CONTROL_BOT` no `.env` e i
 ## Riscos
 
 - Crítico: não copie private keys para `backend/.env`.
-- Crítico: não copie sessão Telegram raw para `backend/.env`.
+- Crítico: não copie sessão Telegram bruta para `backend/.env`.
 - Alto: não rode localmente com `PAPER_TRADING=false` salvo em teste live intencional e isolado.
 - Médio: a primeira autenticação Telegram pode gerar `backend/telegram_session.txt` — mova para `/opt/bot/secrets/telegram_session.txt` depois.
 
-## Troubleshooting
+## Resolução de Problemas
 
 - `Secrets file not found`: crie `/opt/bot/secrets/bot-secrets.env` ou exporte `BOT_SECRETS_FILE`.
 - `Placeholder detected`: substitua `SET_IN_SERVER_ONLY` no arquivo externo, não no `.env`.
 - Login Telegram repetindo: confira `TELEGRAM_SESSION_PATH` e permissões do arquivo.
 - Porta web ocupada: altere `WEB_PORT`.
 
-## Checklist Final
+## Lista de Verificação Final
 
 - [ ] `PAPER_TRADING=true`
-- [ ] `backend/.env` sem secrets
+- [ ] `backend/.env` sem segredos
 - [ ] `/opt/bot/secrets/bot-secrets.env` com `chmod 600`
 - [ ] `./start.sh` sobe sem erros `[CONFIG]`
-- [ ] Dashboard responde quando habilitado
+- [ ] Painel responde quando habilitado

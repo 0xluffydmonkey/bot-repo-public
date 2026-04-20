@@ -78,7 +78,7 @@ Without Supabase, these endpoints return empty/default data because persistence 
 | `[TRADE]` | Trade execution |
 | `[PM]` | Position manager |
 | `[PERSIST]` | Database persistence |
-| `[RECONCILE]` | Reconciliation service (Pass 1 and Pass 2) |
+| `[RECONCILE]` | Reconciliation service: close stale DB `OPEN`, enrich closes, adopt external venue positions |
 | `[WEB]` | Dashboard server |
 | `[RISK]` | Risk manager decisions |
 
@@ -93,12 +93,14 @@ journalctl -u bot-trader -f | grep '\[RECONCILE\]'
 Key events to look for:
 
 ```
-[RECONCILE] Serviço de reconciliação iniciado
-[RECONCILE] Pass 1: verificando N trade(s) OPEN ...
-[RECONCILE] Trade OPEN no banco ausente na venue — reconciliando
-[RECONCILE] Pass 2: N trade(s) CLOSED sem exit_price ...
-[RECONCILE] Enrich encontrado para SYMBOL
+event: reconcile_close
+event: reconcile_enrich_found
+event: adopt_candidate_seen
+event: adopt_external_position
+event: trade_external_adopted
 ```
+
+For interpretation and limitations, see [reconciliation.md](reconciliation.md).
 
 ## Risks
 

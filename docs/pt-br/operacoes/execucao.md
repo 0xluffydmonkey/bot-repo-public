@@ -23,7 +23,7 @@ Enter the code you received: 12345
 
 Depois disso, salva uma sessão e não pede mais.
 
-Mova o arquivo de sessão para a pasta de secrets:
+Mova o arquivo de sessão para a pasta de segredos:
 
 ```bash
 mv backend/telegram_session.txt /opt/bot/secrets/telegram_session.txt
@@ -41,7 +41,7 @@ chmod 600 /opt/bot/secrets/telegram_session.txt
 [CONFIG] Secret loaded: <credenciais específicas do backend> ✓
 [TELEGRAM] Authenticated successfully
 [BOT] Active — waiting for signals
-[WEB] Dashboard available at http://localhost:3000
+[WEB] Painel available at http://localhost:3000
 ```
 
 Se você vê essas linhas, o bot está funcionando corretamente.
@@ -82,14 +82,14 @@ PAPER_TRADING=false
 
 Sinais que passarem por todas as validações de risco serão enviados ao backend live selecionado com fundos reais.
 
-Veja [../trading/paper-mode.md](../trading/paper-mode.md) para comparação completa de comportamento paper vs live.
+Veja [../negociacao/modo-paper.md](../negociacao/modo-paper.md) para comparação completa de comportamento paper vs operação ao vivo.
 
 ---
 
 ## Controles operacionais
 
 Uma vez que o bot está rodando, você pode controlá-lo sem reiniciar via:
-- o dashboard em `http://localhost:3000` (se `ENABLE_WEB=true`)
+- o painel em `http://localhost:3000` (se `ENABLE_WEB=true`)
 - o bot de controle Telegram (se `ENABLE_CONTROL_BOT=true`)
 
 Controles disponíveis em tempo de execução:
@@ -106,13 +106,13 @@ Controles disponíveis em tempo de execução:
 | Atualizar TP/SL | Altera take profit ou stop loss de uma posição aberta |
 | Redução parcial | Reduz uma posição em 1–95% a mercado |
 
-Veja [operator-guide.md](operator-guide.md) para instruções completas de cada controle.
+Veja [guia-do-operador.md](guia-do-operador.md) para instruções completas de cada controle.
 
 ---
 
-## Arquivo de secrets em caminho diferente
+## Arquivo de segredos em caminho diferente
 
-Se seus secrets estão em um lugar diferente do padrão:
+Se seus segredos estão em um lugar diferente do padrão:
 
 ```bash
 BOT_SECRETS_FILE=/caminho/para/secrets.env ./start.sh
@@ -122,4 +122,4 @@ BOT_SECRETS_FILE=/caminho/para/secrets.env ./start.sh
 
 ## Rodar 24/7 em servidor
 
-Use o systemd para que o bot reinicie automaticamente após reinicializações ou falhas. Veja [../deployment/systemd.md](../deployment/systemd.md).
+Use o systemd para que o bot reinicie automaticamente após reinicializações ou falhas. Veja [../implantacao/systemd.md](../implantacao/systemd.md).

@@ -72,10 +72,14 @@ Manual opens pass through the same `executeSignal()` as automatic signals. Remot
 
 ## Position Reconciliation
 
-The system has a two-layer reconciliation mechanism to handle positions closed externally (liquidations, venue UI, TP/SL at exchange, bot restarts mid-close).
+The system has bidirectional reconciliation for live venue state and DB state.
 
-- **Layer 1** — reactive, inline in `PositionManager`: detects when a position disappears from venue snapshots (after `CLOSE_CONFIRMATION_MISSES=2` consecutive misses) and immediately persists the closure.
-- **Layer 2** — periodic safety net in `positionReconciliationService.js`: queries DB for OPEN trades not present at the venue and for recently-closed trades missing `exit_price`.
+- **Reactive layer** — inline in `PositionManager`: detects when a tracked position disappears from venue snapshots (after `CLOSE_CONFIRMATION_MISSES=2` consecutive misses) and persists the external close.
+- **Periodic service** — in `positionReconciliationService.js`: closes stale DB `OPEN` trades, enriches recently closed trades where supported, and adopts live positions from the active venue when no matching DB `OPEN` trade exists.
+
+Adoption is conservative: the position must be seen in 2 consecutive reconciliation cycles, have a reliable `LONG`/`SHORT` direction, and be unambiguous for the active `venue + asset`. Adopted positions are persisted with `open_source='venue_reconciliation'`, receive a new `bot_trade_ref`, and then participate in tracking, alerts, trailing stops, and reconciled closes.
+
+Current limitation: reconciliation operates against the active venue per cycle; simultaneous multi-venue tracking remains limited.
 
 See [reconciliation.md](../operations/reconciliation.md).
 

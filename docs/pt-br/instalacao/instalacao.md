@@ -1,6 +1,6 @@
 # Instalação
 
-> **Setup em 10 minutos.** Siga os passos na ordem.
+> **Configuração em 10 minutos.** Siga os passos na ordem.
 
 ---
 
@@ -24,7 +24,7 @@ node --version   # precisa ser 18 ou superior
 Se não estiver instalado, use o nvm (recomendado):
 
 ```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+curl -o- https://brutas.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
 source ~/.bashrc
 nvm install 20
 nvm use 20
@@ -43,9 +43,9 @@ chmod +x start.sh stop.sh status.sh backend/start.sh
 
 ---
 
-## Passo 3 — Criar a pasta de secrets
+## Passo 3 — Criar a Pasta de Segredos
 
-Secrets são armazenados **fora** da pasta do projeto para nunca serem acidentalmente commitados no git.
+Segredos são armazenados **fora** da pasta do projeto para nunca serem acidentalmente commitados no git.
 
 ```bash
 sudo mkdir -p /opt/bot/secrets
@@ -79,7 +79,7 @@ chmod 600 /opt/bot/secrets/bot-wallet.json
 
 ---
 
-## Passo 5 — Criar o arquivo de secrets
+## Passo 5 — Criar o Arquivo de Segredos
 
 ```bash
 touch /opt/bot/secrets/bot-secrets.env
@@ -97,7 +97,7 @@ TELEGRAM_API_HASH=hash_real
 TELEGRAM_PHONE=+5511999999999
 ```
 
-Adicione secrets específicos de backend apenas se seu backend selecionado os exigir. Veja [../operations/configuration.md](../operations/configuration.md).
+Adicione segredos específicos de backend apenas se seu backend selecionado os exigir. Veja [../operacoes/configuracao.md](../operacoes/configuracao.md).
 
 Salve e feche (`Ctrl+X`, depois `Y`, depois `Enter` no nano).
 
@@ -119,7 +119,7 @@ TELEGRAM_CHANNEL_ID=-1001234567890   # o canal para monitorar
 PAPER_TRADING=true                    # mantenha true até ter confiança
 ```
 
-Veja [../operations/configuration.md](../operations/configuration.md) para todas as configurações disponíveis.
+Veja [../operacoes/configuracao.md](../operacoes/configuracao.md) para todas as configurações disponíveis.
 
 ---
 
@@ -149,11 +149,11 @@ Use esse número como `TELEGRAM_CHANNEL_ID`.
 
 ---
 
-## Checklist de validação
+## Lista de Verificação de Validação
 
 - [ ] `node --version` mostra 18 ou superior
 - [ ] `npm install` concluiu sem erros
 - [ ] `/opt/bot/secrets/bot-secrets.env` existe com `chmod 600`
 - [ ] `backend/.env` criado a partir do exemplo
 - [ ] `./start.sh` inicia sem erros `[CONFIG]`
-- [ ] Dashboard em `http://localhost:3000` responde (se `ENABLE_WEB=true`)
+- [ ] Painel em `http://localhost:3000` responde (se `ENABLE_WEB=true`)
