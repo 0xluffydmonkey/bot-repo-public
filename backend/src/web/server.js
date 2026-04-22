@@ -143,6 +143,15 @@ export function createWebServer(port = 3000, host = process.env.WEB_HOST || unde
     res.json({ ok: true, mode: resolvedMode, data });
   });
 
+  // Insights determinísticos baseados nas métricas existentes — leitura pura, sem autenticação.
+  // Query param: ?mode=live (default) | paper | all
+  app.get('/api/metrics/insights', async (req, res) => {
+    const { mode } = req.query;
+    const data = await persistenceService.getMetricsInsights(mode);
+    const resolvedMode = (mode === 'paper' || mode === 'all') ? mode : 'live';
+    res.json({ ok: true, mode: resolvedMode, insights: data.insights });
+  });
+
   // Retorna auditoria consolidada de um trade por bot_trade_ref.
   // Leitura pura — sem autenticação (mesma política de /api/state).
   // Retorna 404 quando o ref não corresponde a nenhum trade no banco.

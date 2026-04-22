@@ -99,9 +99,18 @@ class PositionManager {
             asset,
             venue:         trackedEntry.venue,
             bot_trade_ref: trackedEntry.bot_trade_ref ?? null,
+            direction:     trackedEntry.direction     ?? null,
           });
-          persistenceService.recordTradeClosed(asset, trackedEntry.venue, trackedEntry.bot_trade_ref ?? null)
-            .catch(err => logger.warn(`[PM] Falha ao persistir close externo de ${asset}: ${err.message}`));
+          persistenceService.recordTradeClosed(
+            asset,
+            trackedEntry.venue,
+            trackedEntry.bot_trade_ref ?? null,
+            'external_close',
+            {
+              side:        trackedEntry.direction  ?? null,
+              entry_price: trackedEntry.entryPrice ?? null,
+            }
+          ).catch(err => logger.warn(`[PM] Falha ao persistir close externo de ${asset}: ${err.message}`));
         }
 
         logger.info(`[PM] Posição ${asset} — tracking removido`);

@@ -302,6 +302,105 @@ function _modeFilter(mode) {
   return { modeFilter: 'AND mode = $1', params: [mode] };
 }
 
+// ── _createExternalClosedTrade ────────────────────────────────────────────────
+//
+// Fallback final: chamado quando recordTradeClosed detectou que o banco não tem
+// nenhum trade OPEN para fechar (UPDATE afetou 0 rows) e o close foi externo
+// (closeSource === 'external_close').
+//
+// Cria um novo registro diretamente como CLOSED com os dados mínimos disponíveis.
+// opened_at é omitido intencionalmente — usa DEFAULT now() porque o horário real
+// de abertura não está disponível neste contexto; o backfill script ou a
+// reconciliação podem corrigir isso em seguida.
+//
+// Idempotência: ON CONFLICT (bot_trade_ref) DO NOTHING. Quando bot_trade_ref é
+// null, gera um randomUUID() — o PositionManager só dispara este caminho uma vez
+// por evento de close externo (após _tracking.delete(asset)), tornando duplicata
+// altamente improvável na prática.
+
+async function _createExternalClosedTrade({ symbolUpper, venue, botTradeRef, closeContext, exit_price, realized_pnl }) {
+  const side = closeContext?.side ?? null;
+
+  if (!side || !['LONG', 'SHORT'].includes(side)) {
+    logger.warn(
+      `[PERSIST] external_close_create_closed_trade_skipped_insufficient_data — ` +
+      `venue=${venue} symbol=${symbolUpper} motivo=side_ausente_no_closeContext`,
+      { event: 'external_close_create_closed_trade_skipped_insufficient_data', venue, symbol: symbolUpper }
+    );
+    return;
+  }
+
+  const ref = botTradeRef ?? randomUUID();
+
+  logger.warn(
+    `[PERSIST] external_close_create_closed_trade — ` +
+    `venue=${venue} symbol=${symbolUpper} side=${side} ref=${ref}`,
+    {
+      event:         'external_close_create_closed_trade',
+      venue,
+      symbol:        symbolUpper,
+      side,
+      bot_trade_ref: ref,
+    }
+  );
+
+  const result = await safeQuery(
+    // opened_at omitido → DEFAULT now() (horário de detecção do close, não de abertura real)
+    `INSERT INTO trades (
+       bot_trade_ref, symbol, side, status, mode, source, venue,
+       entry_price, exit_price, realized_pnl, closed_at
+     ) VALUES ($1,$2,$3,'CLOSED','live','system',$4,$5,$6,$7,NOW())
+     ON CONFLICT (bot_trade_ref) DO NOTHING
+     RETURNING id`,
+    [
+      ref,
+      symbolUpper,
+      side,
+      venue,
+      closeContext?.entry_price ?? null,
+      exit_price                ?? null,
+      realized_pnl              ?? null,
+    ]
+  );
+
+  const id = result?.rows?.[0]?.id ?? null;
+
+  if (id != null) {
+    await _recordEvent('TRADE_OPEN_PERSISTED', {
+      bot_trade_ref: ref,
+      symbol:        symbolUpper,
+      venue,
+      mode:          'live',
+      open_source:   'external_close_backfill',
+    });
+    await _recordEvent('TRADE_CLOSE_PERSISTED', {
+      bot_trade_ref: ref,
+      symbol:        symbolUpper,
+      venue,
+      mode:          'live',
+      close_source:  'external_close_backfill',
+    });
+    logger.warn(
+      `[PERSIST] external_close_create_closed_trade OK — ` +
+      `id=${id} ref=${ref} venue=${venue} symbol=${symbolUpper} side=${side}`,
+      {
+        event:         'external_close_create_closed_trade_ok',
+        id,
+        bot_trade_ref: ref,
+        venue,
+        symbol:        symbolUpper,
+        side,
+      }
+    );
+  } else {
+    logger.warn(
+      `[PERSIST] external_close_create_closed_trade_failed — ` +
+      `INSERT retornou null venue=${venue} symbol=${symbolUpper} side=${side}`,
+      { event: 'external_close_create_closed_trade_failed', venue, symbol: symbolUpper }
+    );
+  }
+}
+
 // ── PersistenceService ────────────────────────────────────────────────────────
 
 export const persistenceService = {
@@ -480,7 +579,7 @@ export const persistenceService = {
    * @param {string}      venue         - e.g. 'drift', 'valiant', 'paper'
    * @param {string|null} [botTradeRef] - UUID gerado no open; lido de pos.bot_trade_ref pelo caller
    */
-  async recordTradeClosed(symbol, venue, botTradeRef = null, closeSource = null) {
+  async recordTradeClosed(symbol, venue, botTradeRef = null, closeSource = null, closeContext = {}) {
     const symbolUpper = symbol?.toUpperCase();
     if (!symbolUpper || !venue) return;
 
@@ -524,6 +623,11 @@ export const persistenceService = {
       // ⚠️ FALLBACK: atualiza o trade OPEN mais recente para symbol+venue. Impreciso se houver
       // múltiplos trades OPEN para o mesmo symbol+venue (não deve ocorrer normalmente).
       logger.warn(`[PERSIST] ⚠️ FALLBACK por symbol+venue — bot_trade_ref e id ausentes para ${venue}:${symbolUpper}. Verifique tracking em disco.`);
+      if (closeSource === 'external_close') {
+        logger.warn(`[PERSIST] external_close_fallback_symbol_venue — tentando UPDATE por symbol+venue antes do fallback final`, {
+          event: 'external_close_fallback_symbol_venue', venue, symbol: symbolUpper,
+        });
+      }
       result = await safeQuery(
         `UPDATE trades
          SET status = 'CLOSED', exit_price = $1, realized_pnl = $2, closed_at = NOW()
@@ -543,6 +647,14 @@ export const persistenceService = {
       _botTradeRefs.delete(mapKey);
       const closeMethod = botTradeRef != null ? `bot_trade_ref=${botTradeRef}` : tradeId != null ? `db_id=${tradeId}` : 'fallback(symbol+venue)';
       logger.info(`[PERSIST] Trade fechado registrado — venue=${venue} symbol=${symbolUpper} método=${closeMethod} close_source=${closeSource ?? 'null'} rows=${rowsAffected}`);
+      if (closeSource === 'external_close') {
+        logger.info(`[PERSIST] external_close_detected_existing_trade — trade encontrado e fechado no banco`, {
+          event:         'external_close_detected_existing_trade',
+          venue,
+          symbol:        symbolUpper,
+          bot_trade_ref: botTradeRef ?? null,
+        });
+      }
       await _recordEvent('TRADE_CLOSE_PERSISTED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, close_source: closeSource });
 
       // ── Persiste ordem de fechamento (best-effort) ───────────────────────
@@ -568,6 +680,11 @@ export const persistenceService = {
     } else {
       logger.warn(`[PERSIST] Trade close update afetou 0 rows — venue=${venue} symbol=${symbolUpper} ref=${botTradeRef ?? tradeId ?? 'fallback'}`);
       await _recordEvent('TRADE_PERSIST_FAILED', { bot_trade_ref: botTradeRef, symbol: symbolUpper, venue, error: 'UPDATE trades afetou 0 rows' });
+      // Fallback final: se o close foi externo e não encontrou trade OPEN para fechar,
+      // cria o registro diretamente como CLOSED com os dados mínimos disponíveis.
+      if (closeSource === 'external_close') {
+        await _createExternalClosedTrade({ symbolUpper, venue, botTradeRef, closeContext, exit_price, realized_pnl });
+      }
     }
   },
 
@@ -786,6 +903,89 @@ export const persistenceService = {
         cumulative_pnl: Math.round(cumulative * 100) / 100,
       };
     });
+  },
+
+  async getMetricsInsights(rawMode) {
+    try {
+      const [bySymbol, risk, bySide, distribution] = await Promise.all([
+        this.getMetricsBySymbol(rawMode),
+        this.getRiskMetrics(rawMode),
+        this.getMetricsBySide(rawMode),
+        this.getMetricsDistribution(rawMode),
+      ]);
+
+      const MIN_SAMPLE = 5;
+      const insights = [];
+
+      const totalClosed = bySymbol.reduce((s, r) => s + r.total_trades, 0);
+      const totalPnl    = bySymbol.reduce((s, r) => s + r.total_pnl, 0);
+
+      // Símbolo com win rate baixo
+      for (const sym of bySymbol) {
+        if (sym.total_trades >= MIN_SAMPLE && sym.win_rate < 40) {
+          insights.push(`${sym.symbol} tem win rate baixo (${sym.win_rate.toFixed(1)}% em ${sym.total_trades} trades)`);
+        }
+      }
+
+      // Símbolo concentra > 50% do lucro total
+      if (totalPnl > 0 && totalClosed >= MIN_SAMPLE) {
+        for (const sym of bySymbol) {
+          if (sym.total_trades >= MIN_SAMPLE && sym.total_pnl / totalPnl > 0.5) {
+            const pct = Math.round((sym.total_pnl / totalPnl) * 100);
+            insights.push(`${sym.symbol} concentra ${pct}% do lucro total`);
+          }
+        }
+      }
+
+      // Side muito pior que o outro (diff >= 20pp, ambos com amostra mínima)
+      if (bySide.length === 2) {
+        const [a, b] = bySide;
+        if (a.total_trades >= MIN_SAMPLE && b.total_trades >= MIN_SAMPLE) {
+          const diff = Math.abs(a.win_rate - b.win_rate);
+          if (diff >= 20) {
+            const worse  = a.win_rate < b.win_rate ? a : b;
+            const better = a.win_rate < b.win_rate ? b : a;
+            insights.push(`${worse.side} rende muito menos que ${better.side} — win rate ${worse.win_rate.toFixed(1)}% vs ${better.win_rate.toFixed(1)}%`);
+          }
+        }
+      }
+
+      // Profit factor < 1
+      if (totalClosed >= MIN_SAMPLE && risk.profit_factor !== null && risk.profit_factor < 1) {
+        insights.push(`Profit factor abaixo de 1 (${risk.profit_factor.toFixed(2)}x) — estratégia perde no agregado`);
+      }
+
+      // Payoff ratio < 1
+      if (totalClosed >= MIN_SAMPLE && risk.payoff_ratio !== null && risk.payoff_ratio < 1) {
+        insights.push(`Payoff ratio abaixo de 1 (${risk.payoff_ratio.toFixed(2)}x) — perda média supera ganho médio`);
+      }
+
+      // Predominância de buckets negativos (> 50% dos trades)
+      const totalBuckets = distribution.reduce((s, b) => s + b.count, 0);
+      if (totalBuckets >= MIN_SAMPLE) {
+        const negCount = distribution
+          .filter(b => b.bucket === '< -100' || b.bucket === '-100 a 0')
+          .reduce((s, b) => s + b.count, 0);
+        const negPct = Math.round((negCount / totalBuckets) * 100);
+        if (negPct > 50) {
+          insights.push(`${negPct}% dos trades fecham com resultado negativo`);
+        }
+      }
+
+      // Concentração excessiva em poucos buckets (top 2 > 80%, amostra mínima 10)
+      if (totalBuckets >= 10) {
+        const sorted = [...distribution].sort((a, b) => b.count - a.count);
+        const top2   = sorted[0].count + (sorted[1]?.count ?? 0);
+        if (top2 / totalBuckets > 0.8) {
+          const pct = Math.round((top2 / totalBuckets) * 100);
+          insights.push(`${pct}% dos trades concentram-se em apenas 2 intervalos de PnL`);
+        }
+      }
+
+      return { insights };
+    } catch {
+      return { insights: [] };
+    }
   },
 
   // ── Idempotência de notificações Telegram ──────────────────────────────────

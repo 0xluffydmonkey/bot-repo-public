@@ -101,9 +101,65 @@ export const valiantAdapter = {
     });
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Leverage with retry — isolated to this step only, never retries placeOrder ──
+    //
+    // "Invalid leverage value" (HTTP 200, status 'err') is a transient rejection
+    // observed on Hyperliquid when the leverage endpoint is temporarily inconsistent.
+    // "Invalid" also triggers the signing-hint regex in _postExchange — that hint is a
+    // false positive here; the actual cause is not a signing scheme error.
+    //
+    // Non-retryable: structural signing errors (agent/auth/sign/unauthorized/Must deposit).
+    // Retryable: "Invalid leverage value" and generic exchange errors.
+    //
+    // Max 2 extra attempts (3 total), 500 ms between each.
+    const LEV_MAX_RETRIES = 2;
+    const LEV_RETRY_DELAY = 500;
+    const NON_RETRYABLE   = /\b(agent|auth|sign|unauthorized|Must deposit)\b/i;
+
     logger.info(`[VALIANT] Ajustando leverage: ${asset} → ${leverage}x (isolated)`);
-    const levResult = await updateLeverage(assetIndex, leverage, false); // false = isolated margin
+    let levResult;
+    let levLastErr;
+    for (let attempt = 0; attempt <= LEV_MAX_RETRIES; attempt++) {
+      try {
+        levResult  = await updateLeverage(assetIndex, leverage, false); // false = isolated margin
+        levLastErr = undefined;
+        if (attempt > 0) {
+          logger.info('[VALIANT] leverage_set_retry_success', {
+            event: 'leverage_set_retry_success', asset, leverage, attempt,
+          });
+        }
+        break;
+      } catch (err) {
+        levLastErr = err;
+        if (NON_RETRYABLE.test(err.message)) {
+          logger.error('[VALIANT] leverage_set_no_retry_unmapped_error', {
+            event: 'leverage_set_no_retry_unmapped_error', asset, leverage, attempt,
+            error: err.message,
+          });
+          throw err;
+        }
+        if (attempt < LEV_MAX_RETRIES) {
+          logger.warn('[VALIANT] leverage_set_retry_attempt', {
+            event:   'leverage_set_retry_attempt',
+            asset,   leverage,
+            attempt: attempt + 1,
+            maxRetries: LEV_MAX_RETRIES,
+            error:   err.message,
+          });
+          await new Promise(r => setTimeout(r, LEV_RETRY_DELAY));
+        }
+      }
+    }
+    if (levLastErr) {
+      logger.error('[VALIANT] leverage_set_retry_failed_final', {
+        event: 'leverage_set_retry_failed_final', asset, leverage,
+        attempts: LEV_MAX_RETRIES + 1,
+        error: levLastErr.message,
+      });
+      throw levLastErr;
+    }
     logger.info('[VALIANT] Leverage definida:', levResult);
+    // ─────────────────────────────────────────────────────────────────────────
 
     logger.info(`[VALIANT] Enviando ordem: ${direction} ${sizeInBase} ${asset} @ $${limitPx}`);
     const orderResult = await placeOrder({ assetIndex, isBuy, size: sizeInBase, limitPrice: limitPx, reduceOnly: false });

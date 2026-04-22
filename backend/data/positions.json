@@ -1,12 +1,22 @@
 {
-  "BNB": {
+  "BTC": {
     "direction": "SHORT",
-    "entryPrice": 635.52,
-    "highestPrice": 648.95,
-    "lowestPrice": 630.8,
-    "stopPrice": 662.34,
+    "entryPrice": 77527,
+    "highestPrice": 79384,
+    "lowestPrice": 77358,
+    "stopPrice": 81225.90000000001,
     "alerted": false,
     "venue": "valiant",
-    "bot_trade_ref": null
+    "bot_trade_ref": "52be5452-d0a1-48c3-a103-1f35557e5b0f"
+  },
+  "SOL": {
+    "direction": "SHORT",
+    "entryPrice": 88.449,
+    "highestPrice": 89.272,
+    "lowestPrice": 87.549,
+    "stopPrice": 91.92645000000002,
+    "alerted": true,
+    "venue": "valiant",
+    "bot_trade_ref": "c076b476-0da9-4de5-bde2-92691154a32e"
   }
 }
