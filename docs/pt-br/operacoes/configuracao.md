@@ -94,6 +94,30 @@ MAX_SLIPPAGE_BPS=100        # slippage máximo permitido (100 = 1%)
 
 ---
 
+## Opcional — Colocação inicial de TP/SL
+
+Controla se uma ordem de take profit e/ou stop loss é colocada na venue quando um novo trade é aberto. Ambos têm padrão `true`.
+
+```env
+TP_ENABLE=true   # colocar take profit na abertura (padrão: true)
+SL_ENABLE=true   # colocar stop loss na abertura   (padrão: true)
+```
+
+| `TP_ENABLE` | `SL_ENABLE` | Comportamento |
+|-------------|-------------|---------------|
+| `true`  | `true`  | TP e SL colocados (padrão) |
+| `true`  | `false` | Só TP — sem stop loss inicial |
+| `false` | `true`  | Só SL — sem take profit inicial |
+| `false` | `false` | Sem proteção inicial — gerenciar manualmente |
+
+Essas flags afetam apenas a colocação inicial na abertura do trade. Não afetam o cálculo de R:R (que sempre usa os valores de TP/SL do sinal), a lógica de trailing stop, nem atualizações manuais via `cmd:update_tpsl`.
+
+**Avisos de risco:**
+- `SL_ENABLE=false` em modo ao vivo: um warning é logado tanto no boot quanto em cada abertura de trade. Não há stop loss automático — o risco deve ser gerenciado manualmente.
+- `TP_ENABLE=false` não tem fallback automático — o take profit deve ser configurado manualmente após a abertura, se desejado.
+
+---
+
 ## Opcional — Reconciliação
 
 O serviço de reconciliação roda automaticamente com padrões seguros. Sobrescreva apenas se necessário:

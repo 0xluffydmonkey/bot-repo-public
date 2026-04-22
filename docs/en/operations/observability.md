@@ -105,6 +105,17 @@ To filter only leverage retry events:
 journalctl -u bot-trader -f | grep 'leverage_set_retry'
 ```
 
+## Log Noise Reduction
+
+Some recurring log messages are deduplicated in memory to keep the terminal readable at runtime without losing diagnostic value:
+
+| Log | Dedup policy |
+|-----|-------------|
+| `[RECONCILE] Pass 3: N trades OPEN ... adoção ignorada (ambiguidade)` | Emitted only when `db_open_count` changes for that asset/venue pair. If the count stays the same it is suppressed on subsequent reconciliation cycles. |
+| `[PM] position restored with bot_trade_ref` | Emitted once per `asset:ref` pair per session. Not repeated on every polling cycle. Re-emits on restart or after the position is closed and a new ref appears. |
+
+This dedup is in-memory only. It resets on bot restart, so the message fires at least once after every restart. No diagnostic information is removed — only repetition is suppressed.
+
 ## Reconciliation Logs
 
 To check whether the reconciliation service is running and finding anything:

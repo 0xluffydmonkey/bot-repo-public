@@ -60,6 +60,7 @@ export interface BackendStatusState {
   paused: boolean;
   autoTrading: boolean;
   mode: 'paper' | 'live' | string;
+  activeVenue: string;
   startedAt: string | null;
   uptime: number;
 }
@@ -152,6 +153,11 @@ export interface BotMetrics {
   [key: string]: unknown;
 }
 
+export interface BotConfig {
+  tpEnable: boolean;
+  slEnable: boolean;
+}
+
 export interface BotState {
   paused?: boolean;
   autoTrading?: boolean;
@@ -166,6 +172,7 @@ export interface BotState {
   assets?: string[] | Array<{ asset: string; [key: string]: unknown }>;
   logs?: ActivityLog[];
   metrics?: BotMetrics;
+  config?: BotConfig;
   alerts?: Array<{
     id?: string;
     title: string;

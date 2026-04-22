@@ -87,6 +87,9 @@ export const config = {
     maxTotalExposurePct: parseFloat(optionalEnv('MAX_TOTAL_EXPOSURE_PCT', '0.80')),
     // Position tracker
     pnlRefreshIntervalMs: parseInt(optionalEnv('PNL_REFRESH_INTERVAL_MS', '30000'), 10),
+    // Initial TP/SL placement at trade open (defaults: both enabled)
+    tpEnable: optionalEnv('TP_ENABLE', 'true') === 'true',
+    slEnable: optionalEnv('SL_ENABLE', 'true') === 'true',
   },
 
   // Logs

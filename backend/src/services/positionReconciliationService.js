@@ -302,7 +302,8 @@ async function _enrichRecentClosedTrades() {
 // a restart clears the counter, so the position must be seen twice again before adoption.
 
 const MIN_ADOPT_PASSES = 2;
-const _adoptionSeenCount = new Map(); // "${venue}:${asset}" → consecutive-pass seen count
+const _adoptionSeenCount    = new Map(); // "${venue}:${asset}" → consecutive-pass seen count
+const _ambiguousLastCount   = new Map(); // "${venue}:${asset}" → last db_open_count that was logged
 
 async function _adoptExternalPositions() {
   const openTrades  = await persistenceService.getOpenTrades();
@@ -344,10 +345,14 @@ async function _adoptExternalPositions() {
     const dbCount  = dbOpenCount.get(asset) ?? 0;
 
     if (dbCount > 1) {
-      logger.warn(
-        `[RECONCILE] Pass 3: ${dbCount} trades OPEN no banco para ${key} — adoção ignorada (ambiguidade)`,
-        { event: 'adopt_skip_ambiguous', asset, venue: activeVenue, db_open_count: dbCount }
-      );
+      // Log only when count changes — suppresses repetitive identical warnings every 5 min.
+      if (_ambiguousLastCount.get(key) !== dbCount) {
+        logger.warn(
+          `[RECONCILE] Pass 3: ${dbCount} trades OPEN no banco para ${key} — adoção ignorada (ambiguidade)`,
+          { event: 'adopt_skip_ambiguous', asset, venue: activeVenue, db_open_count: dbCount }
+        );
+        _ambiguousLastCount.set(key, dbCount);
+      }
       _adoptionSeenCount.delete(key);
       continue;
     }
@@ -398,7 +403,8 @@ async function _adoptExternalPositions() {
     _adoptionSeenCount.delete(key); // reset after adoption (DB now has the record)
   }
 
-  // Remove candidates for assets that disappeared from venue before adoption
+  // Remove candidates for assets that disappeared from venue before adoption.
+  // Also clear _ambiguousLastCount so the warning re-fires if they reappear.
   for (const key of [..._adoptionSeenCount.keys()]) {
     const asset = key.split(':').slice(1).join(':'); // handles asset names with colons (none currently)
     if (!liveAssets.has(asset)) {
@@ -407,6 +413,13 @@ async function _adoptExternalPositions() {
         { event: 'adopt_candidate_expired', key }
       );
       _adoptionSeenCount.delete(key);
+    }
+  }
+  // Also clear ambiguous-log dedup for keys no longer live (position gone)
+  for (const key of [..._ambiguousLastCount.keys()]) {
+    const asset = key.split(':').slice(1).join(':');
+    if (!liveAssets.has(asset)) {
+      _ambiguousLastCount.delete(key);
     }
   }
 }

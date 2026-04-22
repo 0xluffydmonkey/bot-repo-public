@@ -201,6 +201,29 @@ export async function calculateTradeParams(signal, walletBalanceUSD, opts = {}) 
     return null;
   }
 
+  // ─── TP/SL config gates ───────────────────────────────────────────────────
+  //
+  // TP_ENABLE / SL_ENABLE control whether initial protection is placed at venue.
+  // R:R validation above always uses signal tp/sl as a signal quality check —
+  // these flags only affect what is forwarded to the adapter at execution time.
+  const tpToPlace = config.trading.tpEnable  ? signal.tp : null;
+  const slToPlace = config.trading.slEnable  ? signal.sl : null;
+
+  if (!isPaper && !config.trading.slEnable) {
+    logger.warn(
+      `[RISK] ⚠️  SL_ENABLE=false — trade será aberto SEM stop loss inicial. ` +
+      `Gerencie o risco manualmente ou ative SL_ENABLE=true.`,
+      { event: 'sl_disabled_by_config', asset: signal.asset, signalId: signal.signalId }
+    );
+  }
+  if (!isPaper && !config.trading.tpEnable) {
+    logger.warn(
+      `[RISK] ⚠️  TP_ENABLE=false — trade será aberto SEM take profit inicial.`,
+      { event: 'tp_disabled_by_config', asset: signal.asset, signalId: signal.signalId }
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // ─── Resultado ────────────────────────────────────────────────────────────
   if (adjustments.length > 0) {
     logger.info(`[RISK] ⚙️  Ajustes realizados: ${adjustments.join(' | ')}`);
@@ -230,8 +253,8 @@ export async function calculateTradeParams(signal, walletBalanceUSD, opts = {}) 
     asset:           signal.asset,
     direction:       signal.direction,
     entry:           signal.entry,
-    tp:              signal.tp,
-    sl:              signal.sl,
+    tp:              tpToPlace,
+    sl:              slToPlace,
     leverage:        finalLeverage,
     positionSizeUSD,
     notionalValueUSD,

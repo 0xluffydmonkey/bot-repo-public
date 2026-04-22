@@ -73,6 +73,8 @@ function printBanner() {
 ║  Posição:   ${(config.trading.positionSizePct * 100).toFixed(0)}% do saldo por trade                      ║
 ║  Lev. Máx:  ${String(config.trading.maxLeverage + "x").padEnd(46)} ║
 ║  Slippage:  ${config.trading.maxSlippageBps} bps (${(config.trading.maxSlippageBps / 100).toFixed(1)}%)                        ║
+║  TP:        ${String(config.trading.tpEnable ? 'ON' : 'OFF').padEnd(46)} ║
+║  SL:        ${String(config.trading.slEnable ? 'ON' : (!config.trading.paperMode ? 'OFF  ⚠️  sem proteção automática' : 'OFF')).padEnd(46)} ║
 ║  Web:       ${(process.env.ENABLE_WEB === 'true' ? `http://localhost:${process.env.WEB_PORT ?? 3000}` : 'desabilitado').padEnd(46)} ║
 ╚══════════════════════════════════════════════════════════════╝
 `);
@@ -411,6 +413,22 @@ async function main() {
 
   validateConfig();
   logger.info(`[BOT] Configurações validadas ✓`);
+
+  // ── TP/SL boot warnings ────────────────────────────────────────────────────
+  if (!config.trading.paperMode) {
+    if (!config.trading.slEnable) {
+      logger.warn(
+        `[BOT] ⚠️  SL_ENABLE=false — TODOS os trades live serão abertos SEM stop loss inicial. ` +
+        `Defina SL_ENABLE=true para restaurar o comportamento padrão.`
+      );
+    }
+    if (!config.trading.tpEnable) {
+      logger.warn(
+        `[BOT] ⚠️  TP_ENABLE=false — TODOS os trades live serão abertos SEM take profit inicial.`
+      );
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Persistência opcional — nunca bloqueia o boot se banco indisponível
   await persistenceService.init();

@@ -21,6 +21,8 @@ import { SideBreakdown } from '@/components/metrics/side-breakdown';
 import { PnlDistributionChart } from '@/components/metrics/pnl-distribution-chart';
 import { PositionsTable } from '@/components/positions/positions-table';
 import { AlertsPanel } from '@/components/status/alerts-panel';
+import { ProtectionBadges } from '@/components/status/protection-badges';
+import { OperationalStatusCard } from '@/components/status/operational-status-card';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn, formatCurrency, formatNumber } from '@/lib/utils';
@@ -79,15 +81,21 @@ export function DashboardPage() {
               ))}
             </TabsList>
 
-            {/* Quick Controls — always visible */}
-            <CompactControls
-              paused={Boolean(snapshot?.paused)}
-              autoTrading={Boolean(snapshot?.autoTrading)}
-              pending={commandPending}
-              onPause={pause}
-              onResume={resume}
-              onAutotrading={setAutotrading}
-            />
+            {/* Protection status + Quick Controls — always visible */}
+            <div className="flex flex-wrap items-center gap-2">
+              <ProtectionBadges
+                tpEnable={snapshot?.config?.tpEnable}
+                slEnable={snapshot?.config?.slEnable}
+              />
+              <CompactControls
+                paused={Boolean(snapshot?.paused)}
+                autoTrading={Boolean(snapshot?.autoTrading)}
+                pending={commandPending}
+                onPause={pause}
+                onResume={resume}
+                onAutotrading={setAutotrading}
+              />
+            </div>
           </div>
 
           {/* Overview Tab */}
@@ -96,6 +104,14 @@ export function DashboardPage() {
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
+              >
+                <OperationalStatusCard snapshot={snapshot} />
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.03 }}
               >
                 <HeroStats
                   snapshot={snapshot}

@@ -7,6 +7,7 @@ import type {
   BackendSignal,
   BackendSignalHistoryEntry,
   BackendStatusState,
+  BotConfig,
   BotMetrics,
   BotMode,
   BotState,
@@ -46,6 +47,7 @@ function normalizeStatus(input: RawBotState['status']): BackendStatusState {
     paused: Boolean(input?.paused),
     autoTrading: typeof input?.autoTrading === 'boolean' ? input.autoTrading : true,
     mode: asString(input?.mode) ?? 'paper',
+    activeVenue: asString((input as Record<string, unknown>)?.activeVenue) ?? '',
     startedAt: toIsoString(input?.startedAt) ?? null,
     uptime: asNumber(input?.uptime) ?? 0,
   };
@@ -275,6 +277,14 @@ function dedupeLogs(logs: ActivityLog[]): ActivityLog[] {
   });
 }
 
+function normalizeConfig(raw: unknown): BotConfig {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    tpEnable: typeof c.tpEnable === 'boolean' ? c.tpEnable : true,
+    slEnable: typeof c.slEnable === 'boolean' ? c.slEnable : true,
+  };
+}
+
 export function normalizeSnapshot(raw: unknown): BotState {
   const snapshot = (raw && typeof raw === 'object' ? raw : {}) as RawBotState;
   const updatedAt = toIsoString(snapshot.lastUpdate) ?? new Date().toISOString();
@@ -286,6 +296,17 @@ export function normalizeSnapshot(raw: unknown): BotState {
     [...normalizeErrorLogs(snapshot.errors), ...normalizeSignalLogs(snapshot.signals)]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
   );
+  const config = normalizeConfig(snapshot.config);
+
+  const alerts = buildAlerts(status, account, positions, ensureArray(snapshot.errors)) ?? [];
+  if (!config.slEnable) {
+    alerts.push({
+      id: 'sl-disabled',
+      title: 'Stop loss desativado',
+      description: 'SL_ENABLE=false — novos trades abrem sem stop loss automático.',
+      severity: 'warning',
+    });
+  }
 
   return {
     paused: status.paused,
@@ -301,6 +322,7 @@ export function normalizeSnapshot(raw: unknown): BotState {
     assets: positions.map((position) => position.asset),
     logs,
     metrics: inferMetrics(account, status, session, snapshot.signals, positions),
-    alerts: buildAlerts(status, account, positions, ensureArray(snapshot.errors)),
+    alerts,
+    config,
   };
 }

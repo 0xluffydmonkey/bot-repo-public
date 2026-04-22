@@ -40,6 +40,9 @@ class PositionManager {
     // Assets whose tracking was restored from disk this session.
     // Used to emit a one-time "reutilizado" log when identity is validated on first use.
     this._diskRestored = new Set(this._tracking.keys());
+    // Tracks "asset:ref" pairs that have already emitted the "position restored" log.
+    // Prevents the same message from repeating on every polling cycle.
+    this._restoredRefLogged = new Set();
 
     this._readConfig();
   }
@@ -114,6 +117,10 @@ class PositionManager {
         }
 
         logger.info(`[PM] Posição ${asset} — tracking removido`);
+        // Clear restored-ref log dedup for this asset so a future restart re-logs.
+        for (const key of this._restoredRefLogged) {
+          if (key.startsWith(`${asset}:`)) this._restoredRefLogged.delete(key);
+        }
         this._tracking.delete(asset);
         this._closing.delete(asset);
         this._lastTrailAt.delete(asset);
@@ -138,7 +145,11 @@ class PositionManager {
         const ref = this._tracking.get(pos.asset)?.bot_trade_ref;
         if (ref != null) {
           pos.bot_trade_ref = ref;
-          logger.info(`[PM] position restored with bot_trade_ref — ${pos.asset} ref=${ref}`);
+          const logKey = `${pos.asset}:${ref}`;
+          if (!this._restoredRefLogged.has(logKey)) {
+            logger.info(`[PM] position restored with bot_trade_ref — ${pos.asset} ref=${ref}`);
+            this._restoredRefLogged.add(logKey);
+          }
         }
       }
     }

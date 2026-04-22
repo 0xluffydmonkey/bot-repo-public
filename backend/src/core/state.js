@@ -4,6 +4,7 @@
 
 import EventEmitter from 'events';
 import logger from '../utils/logger.js';
+import { config } from '../config/index.js';
 
 const MAX_HISTORY = 50;
 
@@ -198,6 +199,10 @@ class BotState extends EventEmitter {
       },
       session:    { ...this.session },
       lastUpdate: this.lastUpdate,
+      config: {
+        tpEnable: config.trading.tpEnable,
+        slEnable: config.trading.slEnable,
+      },
     };
   }
 }

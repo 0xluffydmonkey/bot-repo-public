@@ -94,6 +94,30 @@ MAX_SLIPPAGE_BPS=100        # max price slippage allowed (100 = 1%)
 
 ---
 
+## Optional — Initial TP/SL placement
+
+Controls whether a take profit and/or stop loss order is placed at the venue when a new trade is opened. Both default to `true`.
+
+```env
+TP_ENABLE=true   # place take profit at open (default: true)
+SL_ENABLE=true   # place stop loss at open   (default: true)
+```
+
+| `TP_ENABLE` | `SL_ENABLE` | Behaviour |
+|-------------|-------------|-----------|
+| `true`  | `true`  | TP and SL placed (default) |
+| `true`  | `false` | TP only — no initial stop loss |
+| `false` | `true`  | SL only — no initial take profit |
+| `false` | `false` | No initial protection — manage manually |
+
+These flags apply only to initial placement at trade open. They do not affect the R:R signal quality check (which always uses the signal's TP/SL values), trailing stop logic, or subsequent manual TP/SL updates via `cmd:update_tpsl`.
+
+**Risk warnings:**
+- `SL_ENABLE=false` in live mode: a warning is logged at both boot and at every trade open. There is no automated stop loss — risk must be managed manually.
+- `TP_ENABLE=false` has no automatic fallback — take profit must be set manually after the trade opens if desired.
+
+---
+
 ## Optional — Reconciliation
 
 The reconciliation service runs automatically with safe defaults. Override only if needed:

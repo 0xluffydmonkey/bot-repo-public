@@ -13,8 +13,8 @@
     "direction": "SHORT",
     "entryPrice": 88.449,
     "highestPrice": 89.272,
-    "lowestPrice": 87.549,
-    "stopPrice": 91.92645000000002,
+    "lowestPrice": 87.09500000000001,
+    "stopPrice": 91.44975000000002,
     "alerted": true,
     "venue": "valiant",
     "bot_trade_ref": "c076b476-0da9-4de5-bde2-92691154a32e"
