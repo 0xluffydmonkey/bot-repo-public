@@ -82,6 +82,29 @@ Sem Supabase, esses endpoints retornam dados vazios/default porque o service é 
 | `[WEB]` | Servidor do painel |
 | `[RISK]` | Decisões do risk manager |
 
+## Logs de Execução Valiant / Hyperliquid
+
+Para monitorar execução de abertura de posição na Valiant:
+
+```bash
+journalctl -u bot-trader -f | grep '\[VALIANT\]'
+```
+
+Eventos de retry de leverage (prefixo `[VALIANT]`, campo `event`):
+
+| Evento | Nível | Significado |
+|--------|-------|-------------|
+| `leverage_set_retry_attempt` | WARN | Chamada de leverage falhou de forma transitória; retry em andamento. Inclui `attempt` (1 ou 2) e mensagem de erro. |
+| `leverage_set_retry_success` | INFO | Leverage aceita em uma tentativa de retry. Abertura continua normalmente. |
+| `leverage_set_retry_failed_final` | ERROR | Todas as 3 tentativas de leverage esgotadas. Abertura abortada — nenhuma ordem foi enviada. |
+| `leverage_set_no_retry_unmapped_error` | ERROR | Erro de assinatura ou autenticação na chamada de leverage. Falha imediata sem retry. |
+
+Para filtrar somente eventos de retry de leverage:
+
+```bash
+journalctl -u bot-trader -f | grep 'leverage_set_retry'
+```
+
 ## Logs de Reconciliação
 
 Para verificar se o serviço de reconciliação está rodando e encontrando algo:

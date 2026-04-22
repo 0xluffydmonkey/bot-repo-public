@@ -82,6 +82,29 @@ Without Supabase, these endpoints return empty/default data because persistence 
 | `[WEB]` | Dashboard server |
 | `[RISK]` | Risk manager decisions |
 
+## Valiant / Hyperliquid Execution Logs
+
+To monitor order-open execution on Valiant:
+
+```bash
+journalctl -u bot-trader -f | grep '\[VALIANT\]'
+```
+
+Leverage retry events (prefix `[VALIANT]`, field `event`):
+
+| Event | Level | Meaning |
+|-------|-------|---------|
+| `leverage_set_retry_attempt` | WARN | A leverage call failed transiently; retry in progress. Includes `attempt` (1 or 2) and error message. |
+| `leverage_set_retry_success` | INFO | Leverage accepted on a retry. Open continues normally. |
+| `leverage_set_retry_failed_final` | ERROR | All 3 leverage attempts exhausted. Open aborted — no order was sent. |
+| `leverage_set_no_retry_unmapped_error` | ERROR | Signing or auth error on leverage call. Fails immediately without retry. |
+
+To filter only leverage retry events:
+
+```bash
+journalctl -u bot-trader -f | grep 'leverage_set_retry'
+```
+
 ## Reconciliation Logs
 
 To check whether the reconciliation service is running and finding anything:

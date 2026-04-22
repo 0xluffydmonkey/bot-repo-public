@@ -15,6 +15,7 @@ const BY_SYMBOL_EMPTY: SymbolMetrics[] = [];
 const RISK_ZERO: RiskMetrics = { win_rate: 0, avg_win: 0, avg_loss: 0, profit_factor: null, payoff_ratio: null };
 const BY_SIDE_EMPTY: SideMetrics[] = [];
 const DISTRIBUTION_EMPTY: DistributionBucket[] = [];
+const INSIGHTS_EMPTY: string[] = [];
 
 function getApiToken() {
   if (typeof window === 'undefined') return null;
@@ -93,6 +94,13 @@ export function useDashboard() {
     queryFn: api.getMetricsDistribution,
     refetchInterval: 120_000,
     placeholderData: DISTRIBUTION_EMPTY,
+  });
+
+  const insightsQuery = useQuery({
+    queryKey: ['metrics-insights'],
+    queryFn: api.getMetricsInsights,
+    refetchInterval: 120_000,
+    placeholderData: INSIGHTS_EMPTY,
   });
 
   useEffect(() => {
@@ -233,5 +241,6 @@ export function useDashboard() {
     risk:       riskQuery.data       ?? RISK_ZERO,
     bySide:        bySideQuery.data        ?? BY_SIDE_EMPTY,
     distribution:  distributionQuery.data  ?? DISTRIBUTION_EMPTY,
+    insights:      insightsQuery.data      ?? INSIGHTS_EMPTY,
   };
 }

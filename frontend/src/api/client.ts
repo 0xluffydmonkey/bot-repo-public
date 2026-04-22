@@ -45,6 +45,11 @@ export type RiskMetrics = {
   payoff_ratio: number | null;
 };
 
+export type InsightsResult = {
+  ok: boolean;
+  insights: string[];
+};
+
 export type TradeAuditResult = {
   ok: boolean;
   bot_trade_ref: string;
@@ -127,4 +132,6 @@ export const api = {
     request<{ ok: boolean; data: SideMetrics[] }>('/api/metrics/by-side').then((r) => r.data),
   getMetricsDistribution: () =>
     request<{ ok: boolean; data: DistributionBucket[] }>('/api/metrics/distribution').then((r) => r.data),
+  getMetricsInsights: () =>
+    request<InsightsResult>('/api/metrics/insights').then((r) => r.insights),
 };

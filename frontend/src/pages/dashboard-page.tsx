@@ -62,6 +62,7 @@ export function DashboardPage() {
     risk,
     bySide,
     distribution,
+    insights,
   } = useDashboard();
 
   return (
@@ -204,10 +205,11 @@ export function DashboardPage() {
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Total PnL</p>
+                      <p className="text-xs text-muted-foreground">PnL Total</p>
                       <p className={cn('mt-1 text-2xl font-semibold', summary.totalPnL >= 0 ? 'text-profit' : 'text-loss')}>
                         {formatCurrency(summary.totalPnL)}
                       </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{formatNumber(summary.closedTrades, 0)} trades fechados</p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -216,6 +218,7 @@ export function DashboardPage() {
                       <p className={cn('mt-1 text-2xl font-semibold', summary.winRate >= 50 ? 'text-profit' : 'text-loss')}>
                         {formatNumber(summary.winRate, 1)}%
                       </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">dos trades fechados</p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -224,15 +227,16 @@ export function DashboardPage() {
                       <p className={cn('mt-1 text-2xl font-semibold', (risk.profit_factor ?? Infinity) >= 1.5 ? 'text-profit' : 'text-loss')}>
                         {risk.profit_factor === null ? '∞' : `${risk.profit_factor.toFixed(2)}x`}
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">ganhos / perdas</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">ganhos ÷ perdas</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Avg PnL</p>
+                      <p className="text-xs text-muted-foreground">PnL Médio</p>
                       <p className={cn('mt-1 text-2xl font-semibold', summary.avgPnL >= 0 ? 'text-profit' : 'text-loss')}>
                         {formatCurrency(summary.avgPnL)}
                       </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">por trade fechado</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -241,36 +245,36 @@ export function DashboardPage() {
               {/* 2. Qualidade da Estrategia */}
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 }}>
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Qualidade da Estrategia
+                  Qualidade da Estratégia
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Closed Trades</p>
+                      <p className="text-xs text-muted-foreground">Trades Fechados</p>
                       <p className="mt-1 text-2xl font-semibold">{formatNumber(summary.closedTrades, 0)}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Best Trade</p>
+                      <p className="text-xs text-muted-foreground">Melhor Trade</p>
                       <p className="mt-1 text-2xl font-semibold text-profit">{formatCurrency(summary.bestTrade)}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Worst Trade</p>
+                      <p className="text-xs text-muted-foreground">Pior Trade</p>
                       <p className="mt-1 text-2xl font-semibold text-loss">{formatCurrency(summary.worstTrade)}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Avg Win</p>
+                      <p className="text-xs text-muted-foreground">Ganho Médio</p>
                       <p className="mt-1 text-2xl font-semibold text-profit">{formatCurrency(risk.avg_win)}</p>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <p className="text-xs text-muted-foreground">Avg Loss</p>
+                      <p className="text-xs text-muted-foreground">Perda Média</p>
                       <p className="mt-1 text-2xl font-semibold text-loss">{formatCurrency(risk.avg_loss)}</p>
                     </CardContent>
                   </Card>
@@ -280,7 +284,7 @@ export function DashboardPage() {
                       <p className={cn('mt-1 text-2xl font-semibold', (risk.payoff_ratio ?? Infinity) >= 1 ? 'text-profit' : 'text-loss')}>
                         {risk.payoff_ratio === null ? '∞' : `${risk.payoff_ratio.toFixed(2)}x`}
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">win / loss medio</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">ganho médio ÷ perda média</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -289,7 +293,7 @@ export function DashboardPage() {
               {/* 3. Graficos */}
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Graficos
+                  Gráficos
                 </p>
                 <PerformancePanel metrics={metrics} timeseries={timeseries} hideSummaryCards />
               </motion.div>
@@ -297,7 +301,7 @@ export function DashboardPage() {
               {/* 4. Breakdowns */}
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Breakdowns
+                  Detalhamento
                 </p>
                 <div className="space-y-3">
                   <div className="grid gap-3 lg:grid-cols-2">
@@ -307,6 +311,27 @@ export function DashboardPage() {
                   <SymbolPerformanceTable data={bySymbol} />
                 </div>
               </motion.div>
+
+              {/* 5. Insights */}
+              {insights.length > 0 && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Insights
+                  </p>
+                  <Card>
+                    <CardContent className="p-4">
+                      <ul className="space-y-2.5">
+                        {insights.map((text, i) => (
+                          <li key={i} className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-500/70" />
+                            {text}
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
 
             </div>
           </TabsContent>

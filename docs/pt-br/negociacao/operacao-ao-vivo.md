@@ -84,6 +84,39 @@ Enquanto esse flag não for `true`, sinais automáticos para Valiant são bloque
 
 TP/SL usa trigger orders nativas com `triggerPx`, preço limite agressivo válido `p`, `grouping: "positionTpsl"` e campos numéricos normalizados em wire format antes da assinatura. Sempre verifique se as trigger orders foram aceitas pela venue após abrir uma posição. Veja [politica-de-fechamento.md](politica-de-fechamento.md).
 
+## Retry no ajuste de alavancagem (Valiant/Hyperliquid)
+
+Ao abrir uma posição, o bot define a alavancagem em modo isolated antes de enviar a ordem. Essa é uma chamada separada e pode falhar de forma transitória com a rejeição `Invalid leverage value` (HTTP 200, status `err`) mesmo quando o valor da alavancagem é válido — instabilidade conhecida da venue.
+
+O adaptador faz retry **somente no passo de set leverage**, até 2 tentativas adicionais (3 no total), com 500 ms de intervalo entre cada. O envio da ordem nunca entra em retry e só é executado após o set leverage ser confirmado.
+
+**Classificação de erros:**
+
+| Padrão de erro | Comportamento |
+|----------------|---------------|
+| `Invalid leverage value` e erros genéricos de exchange | Retry até 2 vezes |
+| Erros de assinatura/autenticação (`agent`, `auth`, `sign`, `unauthorized`, `Must deposit`) | Falha imediata — não mascarada por retry |
+
+**Garantias:**
+- Duplicação de ordem por retry de leverage é impossível — `placeOrder` é chamado apenas uma vez.
+- Erros estruturais de assinatura aparecem imediatamente e não são encobertos pelo retry.
+- Se as 3 tentativas de leverage falharem, a abertura é abortada antes de qualquer ordem ser enviada.
+
+**Eventos de log do retry de leverage:**
+
+| Evento | Nível | Quando |
+|--------|-------|--------|
+| `leverage_set_retry_attempt` | WARN | Cada tentativa de retry; inclui `attempt` (base 1) e mensagem de erro |
+| `leverage_set_retry_success` | INFO | Leverage aceita em uma tentativa de retry |
+| `leverage_set_retry_failed_final` | ERROR | Todas as tentativas esgotadas; inclui total de `attempts` |
+| `leverage_set_no_retry_unmapped_error` | ERROR | Erro não retryable — falha imediata |
+
+Para filtrar esses eventos:
+
+```bash
+journalctl -u bot-trader -f | grep 'leverage_set_retry'
+```
+
 ## Reconciliação em Modo Live
 
 Em modo ao vivo, a reconciliação é bidirecional:

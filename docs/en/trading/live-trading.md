@@ -84,6 +84,39 @@ While this flag is not `true`, automatic signals for Valiant are blocked even if
 
 TP/SL on Valiant/Hyperliquid uses native trigger orders with `triggerPx`, a valid aggressive limit price `p`, `grouping: "positionTpsl"`, and numbers normalized to wire format before signing. Always verify that trigger orders were accepted by the venue after opening a position. See [close-policy.md](close-policy.md).
 
+## Leverage Setup Retry (Valiant/Hyperliquid)
+
+When opening a position, the bot sets isolated-margin leverage on Hyperliquid before placing the order. This is a separate API call and can fail transiently with an `Invalid leverage value` rejection (HTTP 200, status `err`) even when the leverage value is valid — this is a known venue-side instability.
+
+The adapter retries **only the leverage step**, up to 2 additional attempts (3 total), with a 500 ms delay between each. The order placement step is never retried and is only reached after leverage is confirmed set.
+
+**Retry classification:**
+
+| Error pattern | Behaviour |
+|---------------|-----------|
+| `Invalid leverage value` and generic exchange errors | Retried up to 2 times |
+| Signing / auth errors (`agent`, `auth`, `sign`, `unauthorized`, `Must deposit`) | Fail immediately — not masked by retry |
+
+**Guarantees:**
+- Order duplication caused by leverage retry is impossible — `placeOrder` is only called once.
+- Structural signing errors surface immediately and are not hidden by retry.
+- If all 3 leverage attempts fail, the open is aborted before any order is sent.
+
+**Log events for the leverage retry:**
+
+| Event | Level | When |
+|-------|-------|------|
+| `leverage_set_retry_attempt` | WARN | Each retry attempt; includes `attempt` (1-based), error message |
+| `leverage_set_retry_success` | INFO | Leverage accepted on a retry attempt |
+| `leverage_set_retry_failed_final` | ERROR | All attempts exhausted; includes total `attempts` count |
+| `leverage_set_no_retry_unmapped_error` | ERROR | Non-retryable error — fails immediately |
+
+To filter these events:
+
+```bash
+journalctl -u bot-trader -f | grep 'leverage_set_retry'
+```
+
 ## Reconciliation in Live Mode
 
 In live mode, reconciliation is bidirectional:
