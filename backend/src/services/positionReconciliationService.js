@@ -112,7 +112,16 @@ async function _reconcileOpenTrades() {
     (livePositions ?? []).map(p => p.asset?.toUpperCase()).filter(Boolean)
   );
 
-  logger.info(`[RECONCILE] Pass 1: verificando ${venueTrades.length} trade(s) OPEN contra ${liveAssets.size} posição(ões) ativas em ${activeVenue}`);
+  if (
+    _pass1LastState.venue     !== activeVenue      ||
+    _pass1LastState.dbCount   !== venueTrades.length ||
+    _pass1LastState.liveCount !== liveAssets.size
+  ) {
+    logger.info(`[RECONCILE] Pass 1: verificando ${venueTrades.length} trade(s) OPEN contra ${liveAssets.size} posição(ões) ativas em ${activeVenue}`);
+    _pass1LastState.venue     = activeVenue;
+    _pass1LastState.dbCount   = venueTrades.length;
+    _pass1LastState.liveCount = liveAssets.size;
+  }
 
   const now      = Date.now();
   const minAgeMs = parseInt(process.env.RECONCILE_MIN_TRADE_AGE_MS ?? String(DEFAULT_MIN_TRADE_AGE_MS), 10);
@@ -301,9 +310,12 @@ async function _enrichRecentClosedTrades() {
 // State is module-level (in-memory) — resets on bot restart, which is safe:
 // a restart clears the counter, so the position must be seen twice again before adoption.
 
-const MIN_ADOPT_PASSES = 2;
-const _adoptionSeenCount    = new Map(); // "${venue}:${asset}" → consecutive-pass seen count
-const _ambiguousLastCount   = new Map(); // "${venue}:${asset}" → last db_open_count that was logged
+const MIN_ADOPT_PASSES        = 2;
+const MIN_RECONCILE_INTERVAL  = 60_000; // floor: 1 min — prevents NaN/0 from env causing rapid loop
+const _adoptionSeenCount      = new Map(); // "${venue}:${asset}" → consecutive-pass seen count
+const _ambiguousLastCount     = new Map(); // "${venue}:${asset}" → last db_open_count that was logged
+const _pass1LastState         = { venue: '', dbCount: -1, liveCount: -1 }; // suppress repeated identical Pass 1 logs
+let   _reconcileTimer         = null; // guard against double-start
 
 async function _adoptExternalPositions() {
   const openTrades  = await persistenceService.getOpenTrades();
@@ -452,18 +464,37 @@ async function reconcileOnce() {
  * Call once in main() after persistenceService.init() and positionManager.start().
  */
 export function startReconciliation() {
-  const intervalMs     = parseInt(process.env.RECONCILE_INTERVAL_MS ?? String(DEFAULT_INTERVAL_MS), 10);
+  if (_reconcileTimer !== null) {
+    logger.warn('[RECONCILE] startReconciliation() chamado mais de uma vez — ignorado (timer já ativo)');
+    return _reconcileTimer;
+  }
+
+  const parsed      = parseInt(process.env.RECONCILE_INTERVAL_MS ?? '', 10);
+  const intervalMs  = Math.max(
+    MIN_RECONCILE_INTERVAL,
+    Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INTERVAL_MS,
+  );
   const initialDelayMs = 30_000; // wait for the account poller to populate state before first run
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    const raw = process.env.RECONCILE_INTERVAL_MS;
+    if (raw !== undefined && raw !== '') {
+      logger.warn(
+        `[RECONCILE] RECONCILE_INTERVAL_MS="${raw}" inválido — usando padrão ${DEFAULT_INTERVAL_MS / 1000}s`,
+        { event: 'reconcile_interval_invalid', raw, fallback: DEFAULT_INTERVAL_MS },
+      );
+    }
+  }
 
   const firstRun = setTimeout(() => reconcileOnce(), initialDelayMs);
   if (firstRun.unref) firstRun.unref();
 
-  const timer = setInterval(() => reconcileOnce(), intervalMs);
-  if (timer.unref) timer.unref();
+  _reconcileTimer = setInterval(() => reconcileOnce(), intervalMs);
+  if (_reconcileTimer.unref) _reconcileTimer.unref();
 
   logger.info(
     `[RECONCILE] Serviço de reconciliação iniciado ` +
     `(intervalo: ${intervalMs / 1000}s, primeiro ciclo em ${initialDelayMs / 1000}s)`
   );
-  return timer;
+  return _reconcileTimer;
 }

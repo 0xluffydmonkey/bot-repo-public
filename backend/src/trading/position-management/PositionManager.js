@@ -147,7 +147,7 @@ class PositionManager {
           pos.bot_trade_ref = ref;
           const logKey = `${pos.asset}:${ref}`;
           if (!this._restoredRefLogged.has(logKey)) {
-            logger.info(`[PM] position restored with bot_trade_ref — ${pos.asset} ref=${ref}`);
+            logger.debug(`[PM] position restored with bot_trade_ref — ${pos.asset} ref=${ref}`);
             this._restoredRefLogged.add(logKey);
           }
         }
@@ -235,7 +235,7 @@ class PositionManager {
     } else if (this._diskRestored.has(asset)) {
       // First validated reuse of disk-restored tracking — confirms safe rehydration.
       this._diskRestored.delete(asset);
-      logger.info(`[PM] tracking reutilizado (restaurado do disco, identidade validada) — ${direction} ${asset}`, {
+      logger.debug(`[PM] tracking reutilizado (restaurado do disco, identidade validada) — ${direction} ${asset}`, {
         event:        'tracking_reused',
         asset,
         direction:    track.direction,
@@ -360,7 +360,10 @@ class PositionManager {
     const prev = track.stopPrice;
     track.stopPrice = candidateStop;
 
-    logger.info(`[PM] Trailing stop atualizado — ${asset}`, {
+    const TRAILING_LOG_DELTA = 0.005; // 0.5% — microadjustments below this are debug-only
+    const isMaterial = isFirstActivation || prev === null || Math.abs(candidateStop - prev) / Math.abs(prev) >= TRAILING_LOG_DELTA;
+    const trailingLogFn = isMaterial ? logger.info.bind(logger) : logger.debug.bind(logger);
+    trailingLogFn(`[PM] Trailing stop atualizado — ${asset}`, {
       event:     'trailing_update',
       asset,
       direction,

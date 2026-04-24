@@ -160,7 +160,11 @@ export function startPositionTracker(bot, chatIds, options = {}) {
       lastRefresh: Date.now(),
     });
 
-    logger.info(`[TRACKER] Card ${alreadySent ? 'rehydrated (sem reenvio)' : 'criado'} para ${pos.asset}`);
+    if (alreadySent) {
+      logger.debug(`[TRACKER] Card rehydrated (sem reenvio) para ${pos.asset}`);
+    } else {
+      logger.info(`[TRACKER] Card criado para ${pos.asset}`);
+    }
   }
 
   // ── Atualização de card existente ─────────────────────────────────────────
