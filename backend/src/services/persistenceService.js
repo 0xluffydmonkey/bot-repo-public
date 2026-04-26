@@ -81,7 +81,9 @@ function _normalizeSource(source) {
 //
 // Chave composta venue+symbol evita colisão quando o mesmo símbolo está aberto
 // em venues diferentes simultaneamente (ex: SOL em drift e SOL em valiant).
-// Perdido em restart do processo — recordTradeClosed() possui fallback por symbol+venue.
+// Populado em recordTradeOpened() e recarregado do banco em init() após restart.
+// recordTradeClosed() usa este mapa como Priority 2; só cai em fallback symbol+venue
+// se o mapa estiver vazio (banco indisponível no startup).
 const _openTradeIds = new Map();
 
 // ── Mapa em memória: `${venue}:${symbol}` → bot_trade_ref (UUID gerado no caller) ──
@@ -401,6 +403,54 @@ async function _createExternalClosedTrade({ symbolUpper, venue, botTradeRef, clo
   }
 }
 
+// ── Recarrega trades OPEN do banco nos mapas em memória (chamado no startup) ──
+//
+// Garante que após restart _openTradeIds e _botTradeRefs estejam populados com os
+// trades que estavam abertos no momento da queda. Isso permite que recordTradeClosed()
+// use Priority 1 (bot_trade_ref) ou Priority 2 (db id) sem precisar do fallback heurístico
+// por symbol+venue — que é impreciso quando há múltiplos OPENs para o mesmo ativo.
+//
+// Em caso de múltiplos OPENs para o mesmo venue:symbol (estado ambíguo no banco),
+// mantém o mais recente (ORDER BY opened_at DESC) e loga aviso para diagnóstico.
+async function _loadOpenTradesFromDb() {
+  const result = await safeQuery(
+    `SELECT id, bot_trade_ref, symbol, venue, mode
+     FROM trades
+     WHERE status = 'OPEN'
+     ORDER BY opened_at DESC`,
+    []
+  );
+  if (!result?.rows?.length) return;
+
+  let loaded = 0;
+  const ambiguousKeys = new Set();
+
+  for (const t of result.rows) {
+    const mapKey = `${t.venue}:${t.symbol.toUpperCase()}`;
+    if (_openTradeIds.has(mapKey)) {
+      // Duplicate OPEN for same venue:symbol — retain only the most recent (first in DESC order).
+      ambiguousKeys.add(mapKey);
+      continue;
+    }
+    if (t.bot_trade_ref != null) _botTradeRefs.set(mapKey, t.bot_trade_ref);
+    _openTradeIds.set(mapKey, t.id);
+    loaded++;
+  }
+
+  if (ambiguousKeys.size > 0) {
+    logger.warn(
+      `[PERSIST] Trades OPEN duplicados detectados no banco na inicialização — identidade ambígua`,
+      { event: 'open_trades_ambiguous_on_startup', keys: [...ambiguousKeys] }
+    );
+  }
+  if (loaded > 0) {
+    logger.info(
+      `[PERSIST] ${loaded} trade(s) OPEN recarregados do banco na inicialização`,
+      { event: 'open_trades_loaded_on_startup', loaded }
+    );
+  }
+}
+
 // ── PersistenceService ────────────────────────────────────────────────────────
 
 export const persistenceService = {
@@ -420,6 +470,9 @@ export const persistenceService = {
       const result = await safeQuery('SELECT 1 AS ok', []);
       if (result) {
         logger.info(`[PERSIST] ✓ Conectado ao banco (Supabase PostgreSQL)`);
+        // Recarrega trades OPEN do banco para evitar fallback heurístico por symbol+venue
+        // em closes que ocorram após restart (Priority 1/2 passam a funcionar imediatamente).
+        await _loadOpenTradesFromDb();
       } else {
         logger.warn(`[PERSIST] Banco indisponível no startup — persistência degradada (bot opera normalmente)`);
       }
@@ -468,7 +521,26 @@ export const persistenceService = {
     } = data;
 
     const mapKey = `${venue}:${symbol.toUpperCase()}`;
-    const ref    = bot_trade_ref ?? randomUUID();
+
+    // Guard: bloqueia INSERT se já existe um trade OPEN rastreado para este venue:symbol.
+    // _openTradeIds é populado em recordTradeOpened() e recarregado do banco em init().
+    // Previne múltiplos OPENs para o mesmo ativo — causa raiz do adopt_skip_ambiguous.
+    const existingId = _openTradeIds.get(mapKey);
+    if (existingId != null) {
+      logger.warn(
+        `[PERSIST] ⚠️ Trade OPEN já rastreado para ${mapKey} (id=${existingId}) — INSERT bloqueado para evitar duplicidade`,
+        {
+          event:       'trade_open_duplicate_blocked',
+          venue,
+          symbol,
+          existingId,
+          existingRef: _botTradeRefs.get(mapKey) ?? null,
+        }
+      );
+      return existingId;
+    }
+
+    const ref = bot_trade_ref ?? randomUUID();
 
     // Registra o ref imediatamente — disponível para o listener positions:update
     // mesmo que o INSERT falhe (ex: banco indisponível).

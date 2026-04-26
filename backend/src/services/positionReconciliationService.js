@@ -359,9 +359,12 @@ async function _adoptExternalPositions() {
     if (dbCount > 1) {
       // Log only when count changes — suppresses repetitive identical warnings every 5 min.
       if (_ambiguousLastCount.get(key) !== dbCount) {
+        const ambiguousTrades = realDbTrades
+          .filter(t => t.symbol.toUpperCase() === asset)
+          .map(t => ({ id: t.id, ref: t.bot_trade_ref ?? null, side: t.side, opened_at: t.opened_at }));
         logger.warn(
           `[RECONCILE] Pass 3: ${dbCount} trades OPEN no banco para ${key} — adoção ignorada (ambiguidade)`,
-          { event: 'adopt_skip_ambiguous', asset, venue: activeVenue, db_open_count: dbCount }
+          { event: 'adopt_skip_ambiguous', asset, venue: activeVenue, db_open_count: dbCount, trades: ambiguousTrades }
         );
         _ambiguousLastCount.set(key, dbCount);
       }
